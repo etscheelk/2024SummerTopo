@@ -1,0 +1,84 @@
+---
+title: "R TDA Tutorial"
+author: "Lori Ziegelmeier"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Note that a more detailed tutorial on the R TDA package is available [here](https://geometrica.saclay.inria.fr/team/Steve.Oudot/courses/TUM/TP/index.html).
+
+Before we begin, load the TDA package. (If the package is not installed, you can install it using RStudio, or type `install.packages("TDA")`.)
+
+```{r}
+library("TDA")
+```
+
+## Vietoris-Rips Persistence
+
+The `ripsDiag` function computes the persistence diagram of a Vietoris-Rips complex. It returns a list containing a diagram object, which can be plotted either as a persistence diagram or as a barcode. The `ripsDiag` function can use any of the libraries GUDHI, Dionysus, or PHAT.
+
+After downloading the `points1.csv` file from Moodle and setting your working directory to the folder containing it, we can run the following.
+
+```{r}
+points1 <- read.csv("points1.csv")
+plot(points1, xlab="", ylab="", main="points1")
+Diag1 <- ripsDiag(X = points1, maxdimension = 1, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
+plot(Diag1[["diagram"]], main="persistence diagram from points1")
+plot(Diag1[["diagram"]], barcode=TRUE, main="barcode from points1")
+```
+
+```{r}
+library(scatterplot3d)
+points11 <- read.csv("points11.csv")
+scatterplot3d(points11$X4.55, points11$X.2.38, points11$X0.00, 
+              xlab = "X-axis", ylab = "Y-axis", zlab = "Z-axis", 
+              main = "points11")
+Diag11 <- ripsDiag(X = points11, maxdimension = 1, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
+plot(Diag11[["diagram"]], main="persistence diagram from points1")
+plot(Diag11[["diagram"]], barcode=TRUE, main="barcode from points1")
+```
+
+
+## Bottleneck Distance
+
+We now measure the similarity between two persistence diagrams by computing the bottleneck distance. The *bottleneck distance* is the shortest distance $b$ for which there exists a perfect matching between points of the two diagrams (points may be matched to the diagonal) such that the distance between any pair of matched points is at most $b$.
+
+First, we generate a persistence diagram from points (exactly) on a circle of radius 2. The TDA package provides a function `circleUnif` to sample points on a circle.
+
+```{r}
+circle <- circleUnif(200, 2)
+plot(circle)
+Diag2 <- ripsDiag(circle, 1, 4)
+plot(Diag2[["diagram"]])
+```
+
+Notice that the diagram above is similar to the first persistence diagram that we computed (`Diag1`), but with less noise near the diagonal.
+
+We now compute the bottleneck distance between the `Diag1` and `Diag2`, using the `bottleneck` command provided by the TDA package.
+
+```{r}
+bottleneck(Diag1[["diagram"]], Diag2[["diagram"]]) #The default homology dimension is 1
+```
+
+The `bottleneck` command also allows us to compute the bottleneck distance using only the features of a particular dimension.
+
+```{r}
+bottleneck(Diag1[["diagram"]], Diag2[["diagram"]], dimension=0)
+bottleneck(Diag1[["diagram"]], Diag2[["diagram"]], dimension=1)
+```
+
+## Your Turn
+
+Now experiment with the data sets available on Moodle, or work through the [R-TDA package tutorial](https://cran.r-project.org/web/packages/TDA/index.html). You might also want to refer to the paper [Introduction to the R package TDA](https://cran.r-project.org/web/packages/TDA/vignettes/article.pdf).
+
+
+
+
+
+
+
