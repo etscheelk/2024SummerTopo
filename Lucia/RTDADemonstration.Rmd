@@ -28,7 +28,7 @@ The `ripsDiag` function computes the persistence diagram of a Vietoris-Rips comp
 After downloading the `points1.csv` file from Moodle and setting your working directory to the folder containing it, we can run the following.
 
 ```{r}
-points1 <- read.csv("points1.csv")
+points1 <- read.csv("../datasets/CCMathTopologyScavengerHunt/points1.csv", header = FALSE)
 plot(points1, xlab="", ylab="", main="points1")
 Diag1 <- ripsDiag(X = points1, maxdimension = 1, maxscale = 4, library="Dionysus", location = FALSE, printProgress = FALSE)
 plot(Diag1[["diagram"]], main="persistence diagram from points1")
@@ -36,15 +36,13 @@ plot(Diag1[["diagram"]], barcode=TRUE, main="barcode from points1")
 ```
 
 ```{r}
-points1 <- read.csv("points1.csv")
-plot(points1, xlab="", ylab="", main="points1")
 Diag1 <- ripsDiag(X = points1, maxdimension = 1, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
 plot(Diag1[["diagram"]], main="persistence diagram from points1")
 plot(Diag1[["diagram"]], barcode=TRUE, main="barcode from points1")
 ```
 
 ```{r}
-points3 <- read.csv("points3.csv")
+points3 <- read.csv("../datasets/CCMathTopologyScavengerHunt/points3.csv", header = FALSE)
 plot(points3, xlab="", ylab="", main="points1")
 Diag3 <- ripsDiag(X = points3, maxdimension = 1, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
 plot(Diag3[["diagram"]], main="persistence diagram from points3")
@@ -53,7 +51,7 @@ plot(Diag3[["diagram"]], barcode=TRUE, main="barcode from points3")
 
 
 ```{r}
-points11 <- read.csv("points11.csv")
+points11 <- read.csv("../datasets/CCMathTopologyScavengerHunt/points11.csv", header = FALSE)
 scatterplot3d(points11$X4.55, points11$X.2.38, points11$X0.00, 
               xlab = "X-axis", ylab = "Y-axis", zlab = "Z-axis", 
               main = "points11")
@@ -63,7 +61,7 @@ plot(Diag11[["diagram"]], barcode=TRUE, main="barcode from points11")
 ```
 
 ```{r}
-points12 <- read.csv("points12.csv")
+points12 <- read.csv("../datasets/CCMathTopologyScavengerHunt/points12.csv", header = FALSE)
 scatterplot3d(points12$X.4.03, points12$X.1.01, points12$X2.52, 
               xlab = "X-axis", ylab = "Y-axis", zlab = "Z-axis", 
               main = "points12")
@@ -77,10 +75,11 @@ plot_ly(data = points12, x = ~X.4.03, y = ~X.1.01, z = ~X2.52, type = "scatter3d
 Diag12 <- ripsDiag(X = points12, maxdimension = 2, maxscale = 4, library="GUDHI", location = TRUE, printProgress = TRUE)
 plot(Diag12[["diagram"]], main="persistence diagram from points12")
 plot(Diag12[["diagram"]], barcode=TRUE, main="barcode from points12")
+
 ```
 
 ```{r}
-points13 <- read.csv("points13.csv")
+points13 <- read.csv("../datasets/CCMathTopologyScavengerHunt/points13.csv", header = FALSE)
 scatterplot3d(points13$X.0.98, points13$X.3.48, points13$X7.35, 
               xlab = "X-axis", ylab = "Y-axis", zlab = "Z-axis", 
               main = "points13")
@@ -97,10 +96,6 @@ plot(Diag13[["diagram"]], barcode=TRUE, main="barcode from points13")
 ```
 
 ```{r}
-
-# Read the data
-points11 <- read.csv("points11.csv")
-
 # Create an interactive 3D scatter plot
 plot_ly(data = points11, x = ~X4.55, y = ~X.2.38, z = ~X0.00, type = "scatter3d", mode = "markers", marker = list(size = 3)) %>%
   layout(title = "points11",
@@ -111,7 +106,7 @@ plot_ly(data = points11, x = ~X4.55, y = ~X.2.38, z = ~X0.00, type = "scatter3d"
 
 
 ```{r}
-points21<- read.csv("points21.csv", header = FALSE)
+points21<- read.csv("../datasets/CCMathTopologyScavengerHunt/points21.csv", header = FALSE)
 
 Diag21 <- ripsDiag(X = points21, maxdimension = 3, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
 plot(Diag21[["diagram"]], main="persistence diagram from points21")
@@ -121,7 +116,7 @@ plot(Diag21[["diagram"]], barcode=TRUE, main="barcode from points21")
 
 
 ```{r}
-points400_1<- read.csv("points400_1.csv", header = FALSE)
+points400_1<- read.csv("../datasets/CCMathTopologyScavengerHunt/points400_1.csv", header = FALSE)
 
 Diag400_1 <- ripsDiag(X = points400_1, maxdimension = 2, maxscale = 6, library="GUDHI", location = FALSE, printProgress = FALSE)
 plot(Diag400_1[["diagram"]], main="persistence diagram from points400_1")
