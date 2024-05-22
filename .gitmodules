@@ -1,6 +1,6 @@
 [submodule "datasets/PH-roadmap"]
 	path = datasets/PH-roadmap
-	url = git@github.com:n-otter/PH-roadmap.git
+	url = https://github.com/n-otter/PH-roadmap.git
 [submodule "datasets/CCMathTopologyScavengerHunt"]
 	path = datasets/CCMathTopologyScavengerHunt
-	url = git@github.com:lziegelmeier/CCMathTopologyScavengerHunt.git
+	url = https://github.com/lziegelmeier/CCMathTopologyScavengerHunt.git

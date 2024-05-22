@@ -1,0 +1,92 @@
+---
+title: "Topo"
+author: "Ethan Scheelk"
+date: "2024-05-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(pracma)
+
+library(ripserr)
+library(TDA)
+
+
+library(knitr)  
+library(reticulate)  
+knitr::knit_engines$set(python = reticulate::eng_python)
+```
+
+
+
+```{r}
+# data = read.csv("../datasets/CCMathTopologyScavengerHunt/points400_2.csv", header = F)
+data = read.csv("../datasets/PH-roadmap/data_sets/roadmap_datasets_distmat/dragon_vrip.ply.txt_1000_.txt_distmat.txt", sep = " ", header = F)
+data = as.matrix(data)
+dim(data)
+```
+
+```{python}
+print("hello!")
+a  = [1, 2, 3]
+
+print(a)
+
+print(f"{a}, test")
+```
+
+```{python}
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import scipy.spatial.distance as d
+import ripser
+import tadasets
+from persim import plot_diagrams
+
+from persim.visuals import plot_a_bar
+
+import gudhi
+```
+
+```{python}
+# data = np.loadtxt("../datasets/PH-roadmap/data_sets/roadmap_datasets_distmat/dragon_vrip.ply.txt_1000_.txt_distmat.txt")
+data = np.loadtxt("../datasets/CCMathTopologyScavengerHunt/points400_2.csv", delimiter=",")
+
+data = np.array(data)
+print(data)
+
+ripsOut = ripser.ripser(data, maxdim=2, distance_matrix=True)
+plt.close()
+ax = plt.subplot()
+plot_diagrams(ripsOut["dgms"])
+plt.show()
+```
+
+
+```{r}
+out = ripserr::vietoris_rips(data, dim = 2, format = "distmat")
+# out[out$dimension == 1,]
+
+TDA::plot.diagram(out, barcode = T)
+```
+
+
+```{r}
+A = Matrix(0, nrow = 6, ncol = 8)
+
+A = rbind(
+  c(1,-1,0,0,0,0,0,0),
+  c(0,1,-1,0,0,0,0,0),
+  c(0,0,1,-1,0,0,1,1),
+  c(0,0,0,1,-1,0,0,0),
+  c(0,0,0,0,1,-1,-1,0),
+  c(-1,0,0,0,0,1,0,-1)
+)
+A
+svd(A)
+null(A)
+```
+
