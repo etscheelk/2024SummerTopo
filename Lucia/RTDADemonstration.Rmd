@@ -16,6 +16,9 @@ Before we begin, load the TDA package. (If the package is not installed, you can
 
 ```{r}
 library("TDA")
+library(scatterplot3d)
+library(dplyr)
+library(plotly)
 ```
 
 ## Vietoris-Rips Persistence
@@ -27,20 +30,102 @@ After downloading the `points1.csv` file from Moodle and setting your working di
 ```{r}
 points1 <- read.csv("points1.csv")
 plot(points1, xlab="", ylab="", main="points1")
+Diag1 <- ripsDiag(X = points1, maxdimension = 1, maxscale = 4, library="Dionysus", location = FALSE, printProgress = FALSE)
+plot(Diag1[["diagram"]], main="persistence diagram from points1")
+plot(Diag1[["diagram"]], barcode=TRUE, main="barcode from points1")
+```
+
+```{r}
+points1 <- read.csv("points1.csv")
+plot(points1, xlab="", ylab="", main="points1")
 Diag1 <- ripsDiag(X = points1, maxdimension = 1, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
 plot(Diag1[["diagram"]], main="persistence diagram from points1")
 plot(Diag1[["diagram"]], barcode=TRUE, main="barcode from points1")
 ```
 
 ```{r}
-library(scatterplot3d)
+points3 <- read.csv("points3.csv")
+plot(points3, xlab="", ylab="", main="points1")
+Diag3 <- ripsDiag(X = points3, maxdimension = 1, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
+plot(Diag3[["diagram"]], main="persistence diagram from points3")
+plot(Diag3[["diagram"]], barcode=TRUE, main="barcode from points3")
+```
+
+
+```{r}
 points11 <- read.csv("points11.csv")
 scatterplot3d(points11$X4.55, points11$X.2.38, points11$X0.00, 
               xlab = "X-axis", ylab = "Y-axis", zlab = "Z-axis", 
               main = "points11")
-Diag11 <- ripsDiag(X = points11, maxdimension = 1, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
-plot(Diag11[["diagram"]], main="persistence diagram from points1")
-plot(Diag11[["diagram"]], barcode=TRUE, main="barcode from points1")
+Diag11 <- ripsDiag(X = points11, maxdimension = 2, maxscale = 4, library="Dionysus", location = FALSE, printProgress = FALSE)
+plot(Diag11[["diagram"]], main="persistence diagram from points11")
+plot(Diag11[["diagram"]], barcode=TRUE, main="barcode from points11")
+```
+
+```{r}
+points12 <- read.csv("points12.csv")
+scatterplot3d(points12$X.4.03, points12$X.1.01, points12$X2.52, 
+              xlab = "X-axis", ylab = "Y-axis", zlab = "Z-axis", 
+              main = "points12")
+
+plot_ly(data = points12, x = ~X.4.03, y = ~X.1.01, z = ~X2.52, type = "scatter3d", mode = "markers", marker = list(size = 2)) %>%
+  layout(title = "points13",
+         scene = list(xaxis = list(title = "X-axis"),
+                      yaxis = list(title = "Y-axis"),
+                      zaxis = list(title = "Z-axis")))
+
+Diag12 <- ripsDiag(X = points12, maxdimension = 2, maxscale = 4, library="GUDHI", location = TRUE, printProgress = TRUE)
+plot(Diag12[["diagram"]], main="persistence diagram from points12")
+plot(Diag12[["diagram"]], barcode=TRUE, main="barcode from points12")
+```
+
+```{r}
+points13 <- read.csv("points13.csv")
+scatterplot3d(points13$X.0.98, points13$X.3.48, points13$X7.35, 
+              xlab = "X-axis", ylab = "Y-axis", zlab = "Z-axis", 
+              main = "points13")
+
+plot_ly(data = points13, x = ~X.0.98, y = ~X.3.48, z = ~X7.35, type = "scatter3d", mode = "markers", marker = list(size = 2)) %>%
+  layout(title = "points13",
+         scene = list(xaxis = list(title = "X-axis"),
+                      yaxis = list(title = "Y-axis"),
+                      zaxis = list(title = "Z-axis")))
+
+Diag13 <- ripsDiag(X = points13, maxdimension = 2, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
+plot(Diag13[["diagram"]], main="persistence diagram from points13")
+plot(Diag13[["diagram"]], barcode=TRUE, main="barcode from points13")
+```
+
+```{r}
+
+# Read the data
+points11 <- read.csv("points11.csv")
+
+# Create an interactive 3D scatter plot
+plot_ly(data = points11, x = ~X4.55, y = ~X.2.38, z = ~X0.00, type = "scatter3d", mode = "markers", marker = list(size = 3)) %>%
+  layout(title = "points11",
+         scene = list(xaxis = list(title = "X-axis"),
+                      yaxis = list(title = "Y-axis"),
+                      zaxis = list(title = "Z-axis")))
+```
+
+
+```{r}
+points21<- read.csv("points21.csv", header = FALSE)
+
+Diag21 <- ripsDiag(X = points21, maxdimension = 3, maxscale = 4, library="GUDHI", location = FALSE, printProgress = FALSE)
+plot(Diag21[["diagram"]], main="persistence diagram from points21")
+plot(Diag21[["diagram"]], barcode=TRUE, main="barcode from points21")
+```
+
+
+
+```{r}
+points400_1<- read.csv("points400_1.csv", header = FALSE)
+
+Diag400_1 <- ripsDiag(X = points400_1, maxdimension = 2, maxscale = 6, library="GUDHI", location = FALSE, printProgress = FALSE)
+plot(Diag400_1[["diagram"]], main="persistence diagram from points400_1")
+plot(Diag400_1[["diagram"]], barcode=TRUE, main="barcode from points400_1")
 ```
 
 
@@ -55,6 +140,32 @@ circle <- circleUnif(200, 2)
 plot(circle)
 Diag2 <- ripsDiag(circle, 1, 4)
 plot(Diag2[["diagram"]])
+plot(Diag2[["diagram"]], barcode=TRUE)
+
+X = circleUnif(400)
+Xlim=c(-1.6, 1.6); Ylim=c(-1.7, 1.7); by=0.065
+Xseq=seq(Xlim[1], Xlim[2], by=by)
+Yseq=seq(Ylim[1], Ylim[2], by=by)
+Grid=expand.grid(Xseq,Yseq)
+
+distance = distFct(X=X, Grid=Grid)
+
+m0=0.1
+DTM=dtm(X=X, Grid=Grid, m0=m0)
+
+k=60
+kNN=knnDE(X=X, Grid=Grid, k=k)
+
+h=0.3
+KDE= kde(X=X, Grid=Grid, h=h)
+Kdist= kernelDist(X=X, Grid=Grid, h=h)
+
+persp(Xseq,Yseq,matrix(kNN,ncol=length(Yseq), nrow=length(Xseq)),
+      xlab="",ylab="",zlab="",theta=-20,phi=35, ltheta=50, col=2, border=NA,
+      main="KDE", d=0.5, scale=FALSE, expand=3, shade=0.9)
+
+band=bootstrapBand(X=X, FUN=kde, Grid=Grid, B=100, parallel=FALSE, alpha=0.1, h=h)
+
 ```
 
 Notice that the diagram above is similar to the first persistence diagram that we computed (`Diag1`), but with less noise near the diagonal.
