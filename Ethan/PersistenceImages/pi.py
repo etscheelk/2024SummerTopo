@@ -3,6 +3,12 @@ import random
 import matplotlib as plt
 import plotly
 
+import chplpitest
+
+chplpitest.chpl_setup()
+
+# print(chplpitest.norm(1, 2, 3, 4))
+
 arr = []
 
 random.seed(1)
@@ -25,7 +31,9 @@ print(timePers)
 
 plotly.plot(timePers, kind="scatter")
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
     
         
-    pass
+#     pass
+
+chplpitest.chpl_cleanup()
