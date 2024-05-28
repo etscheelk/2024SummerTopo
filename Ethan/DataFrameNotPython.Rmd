@@ -1,0 +1,35 @@
+---
+title: "DataFrameNotPython"
+author: "Ethan Scheelk"
+date: "2024-05-24"
+output: html_document
+---
+
+```{r}
+articleData = data.frame(data.table::fread("../RussNetworkStuff/data/applied_mathematics_piloting/articles_category_for_2l_abstracts_concepts_processed_v1_EX_102.csv.gz"))
+
+
+# articleData = vroom::vroom("../RussNetworkStuff/data/applied_mathematics_piloting/articles_category_for_2l_abstracts_concepts_processed_v1_EX_102.csv.gz")
+# vroom::spec(articleData)
+```
+
+```{r}
+reorder = order(articleData$dfreq_in_category_for_2l)
+
+articleData = articleData[reorder, ]
+remove(reorder)
+
+articleData = articleData[articleData$dfreq_in_category_for_2l!=1, ]
+(articleData = articleData[articleData$dfreq_in_category_for_2l_year!=1, ])
+
+unqVals = unique(articleData$dfreq_in_category_for_2l)
+```
+
+```{r}
+tail(unqVals, n = 15)
+
+nToRemove = 20
+(badFrequentConcepts = unique(articleData[articleData$dfreq_in_category_for_2l %in% tail(unqVals, n = nToRemove), ]$concept))
+```
+
+
