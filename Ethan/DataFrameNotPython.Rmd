@@ -20,7 +20,7 @@ articleData = articleData[reorder, ]
 remove(reorder)
 
 articleData = articleData[articleData$dfreq_in_category_for_2l!=1, ]
-(articleData = articleData[articleData$dfreq_in_category_for_2l_year!=1, ])
+articleData = articleData[articleData$dfreq_in_category_for_2l_year!=1, ]
 
 unqVals = unique(articleData$dfreq_in_category_for_2l)
 ```
@@ -32,4 +32,9 @@ nToRemove = 20
 (badFrequentConcepts = unique(articleData[articleData$dfreq_in_category_for_2l %in% tail(unqVals, n = nToRemove), ]$concept))
 ```
 
+```{r fig.width=10}
+library(scales)
+hist(articleData$mean[articleData$mean>0.5], breaks = 1000, warn.unused = T)
+abline(v = 0.69, col = alpha("red", 0.5))
+```
 
