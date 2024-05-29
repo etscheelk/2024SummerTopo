@@ -7,7 +7,7 @@ use image;
 
 writeln("hello world!");
 
-param numElems : uint(32) = 100;
+config const numElems : uint(32) = 100;
 
 var arr : [0..#numElems, 1..2] real(64);
 
@@ -81,7 +81,6 @@ proc pixelize(const dim : uint, const pers, rad : real = 1) : [0..#dim, 0..#dim]
             writeln("pos ", i, ": ", thisSpot);
         }
 
-        // writeln(i, "\t", j);
         a[i, j] = thisSpot;
     }
 
@@ -101,3 +100,10 @@ var fw = IO.openWriter("./out/out.bmp", locking = false);
 image.writeImageBMP(fw, pix);
 
 fw.close();
+
+
+// test
+var A = [1 => "one", 10 => "ten", 3 => "three", 16 => "sixteen"];
+writeln(A.type:string);
+
+// var B = 
