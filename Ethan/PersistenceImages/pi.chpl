@@ -5,9 +5,11 @@ use Math;
 
 use image;
 
-writeln("hello world!");
+// writeln("hello world!");
 
 config const numElems : uint(32) = 100;
+config const dimYoung : bool = true;
+config const spooky : bool = false;
 
 var arr : [0..#numElems, 1..2] real(64);
 
@@ -31,8 +33,12 @@ proc reshapePers(ref arr) : void
         var x = arr[row,1];
         var y = arr[row,2];
 
-        var pers = y - x;
-        pers = (y-x) / (1-x);
+        var pers : real(64) = 0.0;
+        if spooky then
+            pers = (y-x) / (1-x); // scales a lifetime from 0.6 to 1 to be 0 to 1, for instance
+        else
+            pers = 1 - (y - x);
+        // pers = (y)
         
         arr[row, 2] = pers;
     }
@@ -40,7 +46,7 @@ proc reshapePers(ref arr) : void
 
 reshapePers(arr);
 
-writeln(arr);
+// writeln(arr);
 
 const numPixels : uint(32) = 1024;
 
@@ -63,47 +69,68 @@ proc pixelize(const dim : uint, const pers, rad : real = 1) : [0..#dim, 0..#dim]
     var a : [0..#dim, 0..#dim] real;
     var dim_f = dim:real;
 
-    for (i, j) in a.domain
+    forall (i, j) in a.domain // faster with forall here
+    // for (i, j) in a.domain
     {
         var i_f = i / dim_f * rad;
         var j_f = j / dim_f * rad;
 
         var thisSpot : real = 0;
 
-        forall row in pers.domain.dim[0]
-        with (+ reduce thisSpot)
+        // forall row in pers.domain.dim[0]
+        // with (+ reduce thisSpot)
+        for row in pers.domain.dim[0]
         {
-            thisSpot += norm(pers[row,2] * rad, pers[row,1] * rad, j_f, i_f);
+            thisSpot += norm(pers[row,1] * rad, pers[row,2] * rad, j_f, i_f);
         }
 
-        if (j == 0)
-        {
-            writeln("pos ", i, ": ", thisSpot);
-        }
-
-        a[i, j] = thisSpot;
+        // if (j == 0)
+        // {
+        //     writeln("pos ", i, ": ", thisSpot);
+        // }
+        if dimYoung then
+            a[i, j] = thisSpot * (1 - i / dim_f);
+        else
+            a[i, j] = thisSpot;
     }
 
     return a;
 }
 
 config const rad    : real = 10;
-config const mult   : real = 120;
+// config const mult   : real = 120;
 config const dim    : uint = 128;
+// config const dimYoung : bool = true;
 
-var pix = pixelize(dim, arr, rad) * mult;
+// var lastBirth = max reduce arr[..,1];
+// var maximumPers = max reduce arr[..,2];
+
+// arr[..,1] /= lastBirth;
+// arr[..,2] /= maximumPers;
+// writeln("maximumPers: ", maximumPers);
+
+
+var pix = pixelize(dim, arr, rad);
+
+writeln("Parameters:");
+writeln("numElems: ", numElems);
 writeln();
-writeln(arr[..,1]);
+writeln("dim: ", dim);
+writeln("rad: ", rad);
+writeln("\nStatistics:");
+
+var maximum = max reduce pix;
+var mean = (+ reduce pix) / dim**2;
+var mult = 255.0 / maximum;
+
+writeln("maximum: ", maximum);
+writeln("mean: ", mean);
+writeln("For brightness scaling, mult: ", mult);
+
+pix *= mult;
 
 var fw = IO.openWriter("./out/out.bmp", locking = false);
 
 image.writeImageBMP(fw, pix);
 
 fw.close();
-
-
-// test
-var A = [1 => "one", 10 => "ten", 3 => "three", 16 => "sixteen"];
-writeln(A.type:string);
-
-// var B = 
