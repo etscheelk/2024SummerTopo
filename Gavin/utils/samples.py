@@ -11,6 +11,9 @@ The sampling methods are:
  concepts found in these articles
  - `concept_sample`: Sample random concepts from the dataframe. Includes all
  articles that contain these concepts
+ - `propagation_sample`: Sample by starting at a node in the network and
+ including all articles within a certain radius
+ - `journal_sample`: Sample by picking all articles within a single journal
 '''
 
 # preliminaries

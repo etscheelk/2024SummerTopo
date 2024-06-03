@@ -25,7 +25,8 @@ def filter_article_concept_file(file: str | pd.DataFrame,
                                 ) -> pd.DataFrame:
     '''
     Filters a article-concept file to remove concepts that aren't relevant
-    to articles and that don't occur enough.
+    to articles and that don't occur enough. Defaults are set to not filter
+    anything out
 
     Args:
         `file` (str of Dataframe): The file you want filtered. If a dataframe,
