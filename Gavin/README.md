@@ -11,6 +11,9 @@ The files in my folder are as follows:
     - `articles_dataset_questions.ipynb`: A file that highlights the repeated articles and weird IDs in the article file. For Russ.
     - `oat_3d_rep_cycles.ipynb`: A file that points out some confusions I have with the representative cycles returned by OATpy around 3D voids.
 - `testing`: Test files. This folder is a mess and you shouldn't look at it. Also, it's in the `.gitignore` so it likely won't show up.
+- `utils`: `.py` files with useful functions meant to be called in other files
+    - `make_network.py`: Functions that help to filter and create the network.
+    - `samples.py`: Functions that create different samples of the network for testing various functions.
 
 #### To Do
 I have a couple of things I want to work on:
