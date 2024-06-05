@@ -71,19 +71,19 @@ if __name__ == "__main__":
     
     char = ctypes.c_char(61)
     print(ctypes.addressof(char))
-    
-    import _ctypes
-    import gi
+
+    print("id of locint ", id(locint))
+
     
     # pygobject = gi._gobject._PyGObject_API.pygobject_new(locint)
 
-    import help2
     
-    obj = help2._PyGObject_Functions.PyGObjectCAPI()
+    # import help2
+    # obj = help2._PyGObject_Functions.PyGObjectCAPI()
+    # obj2 = obj.to_object(locint)
+    # print(obj)
     
-    obj2 = obj.to_object(locint)
     
-    print(obj)
     
     # pp = ctypes.pointer(int())
     
