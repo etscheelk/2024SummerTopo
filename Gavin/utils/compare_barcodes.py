@@ -477,8 +477,6 @@ def barcode_distance_matrix(barcodes: list[pd.DataFrame],
     
     Returns
         `dist_matrix` (pd.Dataframe): A matrix of distances between barcodes
-
-    
     '''
     # filter dimension
     if dim is not None:

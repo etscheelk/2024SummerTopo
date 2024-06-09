@@ -7,6 +7,8 @@ The files in my folder are as follows:
     - `concept_network.ipynb`: A notebook that breaks down how I went about creating a concept network. Still needs to have the normalized year (instead of actual year) and be ported into a function in a `.py` folder so it can be called easily in other documents in other analysis.
     - `ripserer_exs.ipynb`: An attempt at using the Ripserer library to compute homology and find representative cycles.
     - `oat_exs.ipynb`: An attempt at using the OATpy library to compute homology and representative cycles on various datasets.
+    - `library_comparisons.ipynb`: A comparison of the solution time and results from different TDA libraries.
+    - `my_first_cycle_rep.ipynb`: Solve for a cycle rep and create some visualizations of it.
 - `questions`: Files created to highlight confusing things I find in libraries/datasets.
     - `articles_dataset_questions.ipynb`: A file that highlights the repeated articles and weird IDs in the article file. For Russ.
     - `oat_3d_rep_cycles.ipynb`: A file that points out some confusions I have with the representative cycles returned by OATpy around 3D voids.
@@ -14,6 +16,7 @@ The files in my folder are as follows:
 - `utils`: `.py` files with useful functions meant to be called in other files
     - `make_network.py`: Functions that help to filter and create the network.
     - `samples.py`: Functions that create different samples of the network for testing various functions.
+    - `compare_barcodes.py`: Functions that help compare barcodes from different libraries.
 
 #### To Do
 I have a couple of things I want to work on:
