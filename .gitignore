@@ -5,9 +5,7 @@ RussNetworkStuff/notebooks
 .DS_Store
 
 # concept datasets (too big for github)
-datasets/concept_network/articles_category_for_2l_abstracts_concepts_processed_v1_EX_102.csv.gz
-datasets/concept_network/dimensions_2021_09_01_articles_category_for_2l_code_102.csv.gz
-datasets/concept_network/dimensions_2021_09_01_articles_category_for_2l_code_102.parquet.gz
+datasets/concept_network/*
 
 ## Python Gitignore from https://github.com/github/gitignore/blob/main/Python.gitignore
 # Byte-compiled / optimized / DLL files

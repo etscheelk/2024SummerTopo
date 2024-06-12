@@ -74,17 +74,16 @@ def erdos_renyi_complex(N: int,
     i, j = i[filter], j[filter] # keep them
 
     # adjacency matrix
-    adj = sparse.lil_matrix((N, N)) # N by N adjacency matrix
+    adj = sparse.csr_matrix((N, N)) # N by N adjacency matrix
     adj[i, j] = edge_weights # set the found coordinates to the values in the edge_weights list
     adj += adj.T # make it symetric
 
     # graph
     if return_graph:
-        G = nx.from_scipy_sparse_array(adj, edge_attribute)
+        G = nx.from_scipy_sparse_array(adj, edge_attribute=edge_attribute)
         return G
 
     # format adjacency matrix
-    adj.setdiag(1) # stops a warning from comming up
     adj = adj.tocsr()
     adj.setdiag(0) # oat needs diagnal to be defined and smaller than entries, this is an easy way to do that
     adj = adj.sorted_indices()

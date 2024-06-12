@@ -18,11 +18,9 @@ Right now, the document has
 '''
 
 # preliminaries
-from itertools import permutations
 import oatpy as oat
 import pandas as pd
 import numpy as np
-import warnings
 
 
 def format_ripser_output(ripser_res: dict[str: np.ndarray]
@@ -253,196 +251,138 @@ def persistance_image_distance(barcode_1: pd.DataFrame,
     return dist
 
 
-def wasserstein_distance(barcode_1: pd.DataFrame,
-                         barcode_2: pd.DataFrame,
-                         dim: int | None = None,
-                         norm: float = 2.
-                         ) -> float:
-    '''
-    **NOTE: The use of this function is STRONGLY discouraged due to time requrements**
+def _hera_format(barcode, dim=None, normalize=True):
+    # dimension
+    if dim is not None:
+        barcode = barcode[barcode['dimension'] == dim]
 
-    Calcualtes the Wasserstein Distance between two barcodes. I suggest filtering the
-    barcodes by dimension before using this function so it only compares features of
-    the same dimension. If the lengths are unequal, unmatched points are mapped to the
+    # numpy array
+    barcode = np.array(barcode[['birth', 'death']])
+    
+    # normalize and truncate infs
+    max_lifetime = oat.barcode.max_finite_value(np.reshape(barcode, -1)) # normalization parameter
+    if normalize:
+        barcode = barcode / max_lifetime # normalization
+        max_lifetime = 1
+    barcode = np.minimum(barcode, 1) # truncate inf
+
+    return barcode
+
+
+def bottleneck_distance(barcode_1: pd.DataFrame,
+                        barcode_2: pd.DataFrame,
+                        dim: int | None = None,
+                        norm: float = np.inf,
+                        normalize = True
+                        ) -> float:
+    '''
+    Calculates the bottleneck distance between two barcodes. The bottleneck distance is
+    the maximum infinity norm difference between feature lifetimes in the minimal
+    matching. I suggest either filtering the barcodes by dimension before using this
+    function or passing a `dim` argument so it only compares features of the same dimension
+
+    Points with infinite lifetimes are mapped to the highest finite value. If the two
+    barcodes have a different number of features, unmatched points are mapped to the
     nearest diagnal
 
-    This is really slow (O(n!) time), and not reccemended for large barcodes
+    This is essentially a wrapper for the Bottleneck distance function in 
+    [Hera](https://bitbucket.org/grey_narn/hera/src/master/), it just formats everything
+    first. That means you need to have the `hera` library installed and on the path (It's
+    a bit of a process)
 
     Args:
         `barcode_1` (Dataframe): Dataframe with the information for the first barcode.
-        Should have "birth" and "death" columns
+        Should have "dimension", "birth", and "death" columns
         `barcode_2` (Dataframe): Dataframe with the information for the second barcode.
-        Should have "birth" and "death" columns
+        Should have "dimension", "birth" and "death" columns
         `dim` (int | None): The dimension to look at if an int. Doesn't filter dimensions
         at all otherwise
+        `norm` (float): The norm to use to calculate the distance between points. Should
+        be >= 1. Default np.inf
+        `normalize` (bool): Whether to normalize lifetimes to [0, 1] or leave them as it.
+        Default true
+
+    Returns:
+        `dist` (float): The bottleneck distance between the two barcodes
+    '''
+    try:
+        import hera
+    except:
+        raise ImportError("Hera package not found. Make sure it's installed and findable on PATH")
+
+    # formatting (filter dimension, normalize, tuncate infs, turn to np array)
+    barcode_1 = _hera_format(barcode_1, dim, normalize)
+    barcode_2 = _hera_format(barcode_2, dim, normalize)
+
+    # calcualte
+    dist = hera.bottleneck_dist(barcode_1, barcode_2)
+
+    return dist
+
+
+def wasserstein_distance(barcode_1: pd.DataFrame,
+                         barcode_2: pd.DataFrame,
+                         dim: int | None = None,
+                         wasserstein_norm: float = 1.,
+                         internal_norm: float = np.inf,
+                         normalize = True
+                         ) -> float:
+    '''
+    Calcualtes the Wasserstein Distance between two barcodes. The Wasserstein Distance
+    is essentially the minimum length total distance between feature lifetimes in the
+    optimal matching. I suggest either filtering the barcodes by dimension before using
+    this function or passing a `dim` argument so it only compares features of the same
+    dimension
+    
+    Points with infinite lifetimes are mapped to the highest finite value. If the two
+    barcodes have a different number of features, unmatched points are mapped to the
+    nearest diagnal
+
+    This converges to the Bottleneck Distance when `wasserstein_norm` and `internal_norm`
+    are both set to infinity (but don't do that, it doesn't like `wasserstein_norm` as
+    infinity)
+
+    This is essentially a wrapper for the Wasserstein distance function in 
+    [Hera](https://bitbucket.org/grey_narn/hera/src/master/), it just formats everything
+    first. That means you need to have the `hera` library installed and on the path (It's
+    a bit of a process)
+
+    Args:
+        `barcode_1` (Dataframe): Dataframe with the information for the first barcode.
+        Should have "dimension", "birth", and "death" columns
+        `barcode_2` (Dataframe): Dataframe with the information for the second barcode.
+        Should have "dimension", "birth" and "death" columns
+        `dim` (int | None): The dimension to look at if an int. Doesn't filter dimensions
+        at all otherwise
+        `wasserstein_norm` (float): The norm to use when calculating the length of the
+        vector of feature lifetime differences. Should be >= 1 and != inf. Default 1
+        `internal_norm` (float): The norm to use when finding the difference between
+        feature lifetimes. Should be >= 1. Default inf.
         `norm` (float): The norm to calculate distance using. Should be >= 1. Default 2
     
     Returns:
         `dist` (Float): The Wasserstein Distance between the two barcodes
     '''
-    barcode_1, barcode_2 = barcode_1.copy(), barcode_2.copy() # don't change the dataframes
+    try:
+        import hera
+    except:
+        raise ImportError("Hera package not found. Make sure it's installed and findable on PATH")
 
-    # filter dimension
-    if dim is not None:
-        barcode_1 = barcode_1[barcode_1['dimension'] == dim]
-        barcode_2 = barcode_2[barcode_2['dimension'] == dim]
+    # hera treats -1 as inf
+    if internal_norm == np.inf:
+        internal_norm = -1
 
-    # setup
-    max_lifetime_1 = oat.barcode.max_finite_value(barcode_1['death']) # remove infs 
-    barcode_1.loc[barcode_1['death'] == np.inf, 'death'] = max_lifetime_1
-    max_lifetime_2 = oat.barcode.max_finite_value(barcode_2['death'])
-    barcode_2.loc[barcode_2['death'] == np.inf, 'death'] = max_lifetime_2
-    barcode_1 = barcode_1.reset_index(drop=True) # need to be able to reorder
-    barcode_2 = barcode_2.reset_index(drop=True)
-    if len(barcode_2) > len(barcode_1): # we swap the ordering for barcode 1, which needs to be the longer one
-        barcode_1, barcode_2 = barcode_2, barcode_1
-    n = len(barcode_1)
+    # formatting (filter dimension, normalize, tuncate infs, turn to np array)
+    barcode_1 = _hera_format(barcode_1, dim, normalize)
+    barcode_2 = _hera_format(barcode_2, dim, normalize)
 
-    # distance function between two features
-    if norm == np.inf:
-        d = lambda x1, y1, x2, y2: np.maximum(np.abs(x1-x2), np.abs(y1-y2))
-    else:
-        d = lambda x1, y1, x2, y2: ((np.abs(x1-x2)**norm + np.abs(y1-y2))**norm)**(1/norm)
+    # options
+    params = hera.WassersteinParams()
+    params.internal_p = internal_norm # norm used to find distance between features
+    params.wasserstein_power = wasserstein_norm # norm used to add feature distances
 
-    # distance function for one ordering
-    def distance(bc1, bc2):
-        if len(bc1) != len(bc2): # fill in rows with nearest diagnal
-            extra_rows = bc1[len(bc2):].copy() # rows that need to be filled in
-            extra_rows['birth'] = extra_rows['death'] = (extra_rows['birth']+extra_rows['death']) / 2 # point along diagnal close to point
-            bc2 = pd.concat((bc2, extra_rows))
-        
-        # get distance
-        dist_arr = d(bc1['birth'], bc1['death'], bc2['birth'], bc2['death']) # dist between features
-        dist = sum(dist_arr) # dist between barcodes
-
-        return dist
-    
-    # calculate the distance
-    dist = np.inf
-    for order in permutations(np.arange(n)): # for each permuation of the longer barcode
-        # reorder barcode_1 based on the permuations
-        bc1_reordered = barcode_1.copy()
-        bc1_reordered['order'] = order
-        bc1_reordered = bc1_reordered.set_index('order')
-        bc1_reordered = bc1_reordered.sort_index()
-
-        # get the distance
-        order_dist = distance(bc1_reordered, barcode_2) # distance between reordered barcode 1 and barcode 2
-        dist = min(dist, order_dist)
-
-    return dist
-
-
-def approx_wasserstein_distance(barcode_1: pd.DataFrame,
-                                barcode_2: pd.DataFrame,
-                                dim: int | None = None,
-                                norm: float = 2.,
-                                max_iter: int = 10,
-                                return_iteration_count: bool = False,
-                                supress_warnings: bool = False
-                                ) -> float | tuple[float, int]:
-    '''
-    Approximates the Wasserstein Distance between two barcodes. I suggest filtering the
-    barcodes by dimension before using this function so it only compares features of
-    the same dimension. If the lengths are unequal, the shortest lifetime features are
-    matched with the diagnal (at the start)
-
-    This works by sorting both arrays, by birth/death time, then matching them up. It
-    then calcultates the distance between the current order and orders that are swapped
-    by 1 row. Repeats this process until there are no distance decreasing row swaps.
-
-    Args:
-        `barcode_1` (Dataframe): Dataframe with the information for the first barcode.
-        Should have "birth" and "death" columns
-        `barcode_2` (Dataframe): Dataframe with the information for the second barcode.
-        Should have "birth" and "death" columns
-        `dim` (int | None): The dimension to look at if an int. Doesn't filter dimensions
-        at all otherwise
-        `norm` (float): The norm to calculate distance using. Should be >= 1. Default 2
-        `max_iter` (int): The maximum number of iterations to use in the row swap. Default
-        10
-        `return_iteration_count` (bool): Returns the number of row swapping iterations if
-        True. Otherwise, just returns the distance. Default False
-        `supress_warnings` (bool): Warns user if maximum iteration count exceeded if False.
-        Skips this if True. Default False
-    
-    Returns:
-        `dist` (Float): The estimated Wasserstein Distance between the two barcodes
-        `num_iter` (int): Only returned if `return_iteration_count` is True. The number of
-        row swapping iterations we go through
-    '''
-    barcode_1, barcode_2 = barcode_1.copy(), barcode_2.copy() # don't change the dataframes
-
-    # filter dimension
-    if dim is not None:
-        barcode_1 = barcode_1[barcode_1['dimension'] == dim]
-        barcode_2 = barcode_2[barcode_2['dimension'] == dim]
-
-    # setup
-    max_lifetime_1 = oat.barcode.max_finite_value(barcode_1['death']) # remove infs 
-    barcode_1.loc[barcode_1['death'] == np.inf, 'death'] = max_lifetime_1
-    max_lifetime_2 = oat.barcode.max_finite_value(barcode_2['death'])
-    barcode_2.loc[barcode_2['death'] == np.inf, 'death'] = max_lifetime_2
-    barcode_1 = barcode_1.sort_values(['birth', 'death']).reset_index(drop=True) # sort (to line everything up)
-    barcode_2 = barcode_2.sort_values(['birth', 'death']).reset_index(drop=True)
-    if len(barcode_2) > len(barcode_1): # we swap the ordering for barcode 1, which needs to be the longer one
-        barcode_1, barcode_2 = barcode_2, barcode_1
-    n = len(barcode_1)
-    barcode_2['added'] = 0 # indicator if row is added
-
-    # fill in entries (if the lengths are unequal)
-    if len(barcode_1) != len(barcode_2):
-        # figure out how to fill in rows
-        num_missing = len(barcode_1) - len(barcode_2) # number of values to add to bc2
-        lifetimes = barcode_1['death'] - barcode_2['birth'] # lifetime
-        lifetimes = lifetimes.sort_values()
-        shortest_lifetimes = lifetimes[:num_missing].sort_index().index
-
-        # create the dataframe to fill with
-        concat = []
-        last_i = 0
-        row_to_add = barcode_2[:1].copy() # row we add where missing values are
-        row_to_add['added'] = 1
-        row_to_add['birth'] = row_to_add['death'] = 0
-        for i in shortest_lifetimes: # for each row we add
-            concat += [barcode_2[last_i: i], row_to_add]
-            last_i = i
-        concat += [barcode_2[i:]]
-        barcode_2 = pd.concat(concat).reset_index(drop=True)
-
-    # distance function between two barcodes
-    if norm == np.inf:
-        d = lambda x1, y1, x2, y2, a: (1-a) * np.maximum(np.abs(x1-x2), np.abs(y1-y2)) + a * np.abs(x1-y1)/2
-    else:
-        d = lambda x1, y1, x2, y2, a: (1-a) * ((np.abs(x1-x2)**norm + np.abs(y1-y2))**norm)**(1/norm) + a * 2**(1/norm) * np.abs(x1-y1)/2
-
-    # initial distance
-    dist = sum(d(barcode_1['birth'], barcode_1['death'], barcode_2['birth'], barcode_2['death'], barcode_2['added']))
-
-    # row swaps
-    num_iter = 0 # check that we're under the max number of iterations
-    swapped_row = True # indicator if a row has been swapped this iteration
-    while swapped_row and num_iter < max_iter:
-        swapped_row = False
-        num_iter += 1
-        for i in range(1, n):
-            swapped_bc1 = barcode_1.copy() # swapped barcode 1
-            swapped_bc1.loc[i-1, :], swapped_bc1.loc[i, :] = swapped_bc1.loc[i, :], swapped_bc1.loc[i-1, :] # swap rows
-            swapped_dist = sum(d(swapped_bc1['birth'], swapped_bc1['death'], barcode_2['birth'], barcode_2['death'], barcode_2['added']))
-
-            # if better than current, swap rows perminantly
-            if swapped_dist < dist:
-                dist = swapped_dist
-                barcode_1 = swapped_bc1
-                swapped_row = True
-
-    # tell user if maximum iteration count exceeded
-    if num_iter == max_iter and not supress_warnings:
-        warnings.warn('Maximum Iteration count exceeded. Returning current value.')
-    
-    # return iteration count
-    if return_iteration_count:
-        return dist, num_iter
+    # solve
+    dist = hera.wasserstein_dist(barcode_1, barcode_2, params)
     
     return dist
 
