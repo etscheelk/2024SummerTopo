@@ -269,3 +269,5 @@ Cargo.lock
 
 # test files i dont want to show up
 Gavin/testing/*
+.DS_Store
+.DS_Store
