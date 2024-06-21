@@ -271,3 +271,4 @@ Cargo.lock
 Gavin/testing/*
 .DS_Store
 .DS_Store
+results/*

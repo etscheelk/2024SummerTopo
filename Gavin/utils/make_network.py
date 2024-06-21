@@ -10,6 +10,7 @@ Right now, this document has
 '''
 
 # preliminaries
+from scipy.sparse import csr_matrix
 import networkx as nx
 import pandas as pd
 import numpy as np
@@ -280,7 +281,6 @@ def gen_concept_network(file: str | pd.DataFrame,
             (year - year_min) / (year_max - year_min).
         The `year_min` variable is an argument to the function and `year_max` is the
         max year found in the dataset. Default False.
-
         `file_reader` (callable): Function used to read the dataframe from the file.
         Required if the file is anything that's not a csv.
 
@@ -303,3 +303,35 @@ def gen_concept_network(file: str | pd.DataFrame,
     G = make_network_from_nodes_edges(nodes, edges) # make the network
 
     return G
+
+
+def adj_matrix(G: nx.Graph,
+               weight: str | None = None,
+               fill_diag: bool = True
+               ) -> csr_matrix:
+    '''
+    Creates an adjacency matrix of a networkx graph to use for homology
+    calculations
+
+    This does, essentially, the same thing as `nx.adjacency_matrix` (and
+    is a wrapper for it), just also fills in the diagnal and calls 
+    `sorted_indices()` at the end to avoid OAT issues
+
+    Args:
+        `G` (nx.Graph): Networkx graph you want an adjacency matrix for
+        `weight` (str | None): Key to use as the weight in the adjacency
+        matrix. If none, creates an unweighted matrix
+        `fill_diag` (bool): Whether to fill the diagnal of the matrix. If
+        True, uses the same key as the edges (`weight`) to fill the diagnal
+    
+    Returns:
+        `adj` (csr_matrix): Sparse adjacency matrix for the network
+    '''
+    ## create the adjacency matrix
+    adj = nx.adjacency_matrix(G, weight=weight) # adjacency matrix
+    if fill_diag:
+        node_births = list(nx.get_node_attributes(G, weight).values()) # node orgin times
+        adj.setdiag(node_births)
+    adj = adj.sorted_indices() # needed on some computers for oat (not others tho which is confusing)
+
+    return adj
