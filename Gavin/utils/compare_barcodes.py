@@ -272,7 +272,6 @@ def _hera_format(barcode, dim=None, normalize=True):
 def bottleneck_distance(barcode_1: pd.DataFrame,
                         barcode_2: pd.DataFrame,
                         dim: int | None = None,
-                        norm: float = np.inf,
                         normalize = True
                         ) -> float:
     '''
@@ -297,8 +296,6 @@ def bottleneck_distance(barcode_1: pd.DataFrame,
         Should have "dimension", "birth" and "death" columns
         `dim` (int | None): The dimension to look at if an int. Doesn't filter dimensions
         at all otherwise
-        `norm` (float): The norm to use to calculate the distance between points. Should
-        be >= 1. Default np.inf
         `normalize` (bool): Whether to normalize lifetimes to [0, 1] or leave them as it.
         Default true
 
