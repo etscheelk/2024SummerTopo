@@ -10,11 +10,12 @@ Right now, the document has
  that can be used in other functions
  - `persistance_image`: Makes a peristance image for an inputted
  homology
- - `wasserstein_distance`: An extremely slow algrothim for calculating
- the Wasserstein Distance between barcodes. I strongly suggest not
- using it and using `approx_wasserstein_distance` instead
- - `approx_wasserstein_distance`: A huristic Wasserstein Distance that's
- much faster to calculate
+ - `bottleneck_distance`: A wrapper for a hera command to find the
+ bottleneck distance between barcodes
+ - `wasserstein_distance`: A wrapper for a hera command to find the
+ Wasserstein Distance between barcodes
+ - `barcode_distance_matrix`: A functions that returns the distance
+ between a bunch of barcodes in a matrix
 '''
 
 # preliminaries
