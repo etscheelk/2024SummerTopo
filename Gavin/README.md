@@ -10,6 +10,7 @@ The files in my folder are as follows:
     - `library_comparisons.ipynb`: A comparison of the solution time and results from different TDA libraries.
     - `my_first_cycle_rep.ipynb`: Solve for a cycle rep and create some visualizations of it.
     - `random_complexes.ipynb`: Create a handful of random graphs
+    - `pmi_networks.ipynb`: Exploratory analysis of what PMI-based threasholding would mean for the network
 - `questions`: Files created to highlight confusing things I find in libraries/datasets.
     - `articles_dataset_questions.ipynb`: A file that highlights the repeated articles and weird IDs in the article file. For Russ.
     - `oat_3d_rep_cycles.ipynb`: A file that points out some confusions I have with the representative cycles returned by OATpy around 3D voids.

@@ -105,10 +105,11 @@ def filter_article_concept_file(file: str | pd.DataFrame,
             is set to `True`
     '''
     # read the file (if inputted as a string)
-    df = file.copy()[['article_id', 'year', 'concept', 'relevance_mean']] if type(file) == pd.DataFrame else file_reader(file, usecols=['article_id', 'year', 'concept', 'mean'])
+    df = file.copy() if type(file) == pd.DataFrame else file_reader(file)
     df = df.rename(columns={ # rename for clarity
             'mean': 'relevance_mean'
         })
+    df = df[['article_id', 'year', 'concept', 'relevance_mean']]
 
     # basic filters
     df = df[df['relevance_mean'] >= min_relevance]
@@ -207,6 +208,10 @@ def filter_cooccurrences(article_concept_df: pd.DataFrame,
     '''
     Filters an `article_concept_df` and creates an edgelist that removes edges that
     aren't connected enough and have enough cooccurrences
+
+    NOTE: The calculated PMI uses natural log instead of log base 2. This is easy to
+    change, but seems to have precident (even the example on the PMI Wikipedia page
+    uses the natual log) and has better vibes
 
     Args:
         `article_concept_df` (pd.Dataframe): Dataframe of articles and concepts to be
