@@ -14,7 +14,7 @@ recalculate everything.
 # load some packages
 import sys; sys.path.append("/Users/gavinengelstad/Documents/Documents - Gavin’s MacBook Pro/School/Summer '24/Research/2024SummerTopo/Gavin/utils")
 from pebble import ProcessPool
-import make_network as mn
+import make_network_v1 as mn
 from time import time
 import networkx as nx
 import pandas as pd

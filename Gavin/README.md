@@ -1,5 +1,5 @@
 ## Gavin's Test Files
-I know there's not a lot here. Right now, it just has some basic things with the network and topological libraries.
+My stuff. I tried to stay somewhat organized, so you can look below to see what each folder/file has
 
 #### Files
 The files in my folder are as follows:
@@ -16,7 +16,8 @@ The files in my folder are as follows:
     - `ethan_help`: A folder with the initial question about saving the `FactoredBoundryMatrixVR` object. Idk what he's done to it at this point.
 - `testing`: Test files. This folder is a mess and you shouldn't look at it. Also, it's in the `.gitignore` so it likely won't show up.
 - `utils`: `.py` files with useful functions meant to be called in other files
-    - `make_network.py`: Functions that help to filter and create the network.
+    - `make_network_v1.py`: Functions that help to filter and create the network. Has since been updated
     - `samples.py`: Functions that create different samples of the network for testing various functions.
     - `compare_barcodes.py`: Functions that help compare barcodes from different libraries.
     - `random_complexes.py`: Functions for generating random simplicial complexes.
+    - `make_network.py`: Functions that help to filter and create the network. Now allows filtering by edge characteristics

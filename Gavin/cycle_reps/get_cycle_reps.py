@@ -16,7 +16,7 @@ program is done, so we can get as many cycle reps as possible.
 import sys; sys.path.append("/Users/gavinengelstad/Documents/Documents - Gavin’s MacBook Pro/School/Summer '24/Research/2024SummerTopo/Gavin/utils")
 # make_network folder, we can just move it to work better
 from pebble import ProcessPool
-import make_network as mn
+import make_network_v1 as mn
 import pandas as pd
 import oatpy as oat
 import numpy as np
