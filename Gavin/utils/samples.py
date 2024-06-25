@@ -17,7 +17,7 @@ The sampling methods are:
 '''
 
 # preliminaries
-import Gavin.utils.make_network as mn
+import Gavin.utils.make_network_v1 as mn
 import networkx as nx
 import pandas as pd
 import numpy as np
