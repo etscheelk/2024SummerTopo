@@ -405,3 +405,38 @@ def assign_edge_weights(G: nx.Graph,
     
     # return G
     return G
+
+
+def shuffle_edge_weights(G: nx.Graph,
+                         seed: int | None = None
+                         ) -> nx.Graph:
+    '''
+    Create a new graph with the same edges as G but the edge weights randomly reassigned
+
+    Args:
+        `G` (nx.Graph): Networkx graph you want edge weights reassigned for
+        `seed` (int | None): Seed for the numpy random number generator
+
+    Returns:
+        `H` (nx.Graph): Networkx graph thats a copy of G with each edge having a random other
+        edge's edge weight
+    '''
+    # setup
+    np.random.seed(seed) # amke predictable
+
+    # new graph with same nodes
+    H = nx.Graph()
+    H.add_nodes_from(G.nodes(data=True)) # keep node attributes
+
+    # get edges
+    edges = np.array(G.edges)
+    weights = np.array(list(dict(G.edges).values()))
+
+    # scramble
+    np.random.shuffle(weights)
+
+    # pairs edges and weights
+    edge_weight_pairs = [(u, v, attr) for (u, v), attr in zip(edges, weights)]
+    H.add_edges_from(edge_weight_pairs) # add edges
+    
+    return H

@@ -420,7 +420,8 @@ def _should_filter__cooccurrences(min_cooccurrences: int | float, max_cooccurren
 
 def adj_matrix(G: nx.Graph,
                weight: str | None = None,
-               fill_diag: bool = True
+               fill_diag: bool = True,
+               diag_val: float | None = 0
                ) -> csr_matrix:
     '''
     Creates an adjacency matrix of a networkx graph to use for homology
@@ -435,7 +436,10 @@ def adj_matrix(G: nx.Graph,
         `weight` (str | None): Key to use as the weight in the adjacency
         matrix. If none, creates an unweighted matrix
         `fill_diag` (bool): Whether to fill the diagnal of the matrix. If
-        True, uses the same key as the edges (`weight`) to fill the diagnal
+        True, uses either the same key as the edges (`weight`) to get a
+        value from each node or the `diag_val` input to fill the diagnal
+        `diag_val` (float | None): The number put accross the whole diagnal.
+        If set to None, uses a key from each node to get the value
     
     Returns:
         `adj` (csr_matrix): Sparse adjacency matrix for the network
@@ -443,8 +447,11 @@ def adj_matrix(G: nx.Graph,
     ## create the adjacency matrix
     adj = nx.adjacency_matrix(G, weight=weight) # adjacency matrix
     if fill_diag:
-        node_births = list(nx.get_node_attributes(G, weight).values()) # node orgin times
-        adj.setdiag(node_births)
+        if diag_val is None:
+            node_births = list(nx.get_node_attributes(G, weight).values()) # node orgin times
+            adj.setdiag(node_births)
+        else:
+            adj.setdiag(diag_val)
     adj = adj.sorted_indices() # needed on some computers for oat (not others tho which is confusing)
 
     return adj
@@ -516,5 +523,5 @@ def gen_concept_network(file: str | pd.DataFrame,
 
     # return
     if return_adj:
-        return adj_matrix(G, 'norm_year', True)
+        return adj_matrix(G, 'norm_year', True, None)
     return G
