@@ -13,16 +13,13 @@ program is done, so we can get as many cycle reps as possible.
 '''
 
 # load some packages
-import sys; sys.path.append("/Users/gavinengelstad/Documents/Documents - Gavin’s MacBook Pro/School/Summer '24/Research/2024SummerTopo/Gavin/utils")
-# make_network folder, we can just move it to work better
+import Gavin.utils.make_network_v1 as mn
 from pebble import ProcessPool
-import make_network_v1 as mn
 import pandas as pd
 import oatpy as oat
 import numpy as np
 import pickle
 import time
-import os
 
 # FactoredBoundryMatrixVR is unpickleable, meaning it can't be sent between objects
 # instead, we use "fork" to create a copy of the global enviorment and make factored
@@ -33,21 +30,19 @@ import multiprocessing as mp
 mp.set_start_method('fork', force=True)
 
 # config
-DATA_PATH = 'datasets/concept_network/'
 CONCEPT_FILE = 'articles_category_for_2l_abstracts_concepts_processed_v1_EX_102.csv.gz' # Applied Mathematics
-RESULT_PATH = 'results/' # save files here
 RESULT_FILE = 'applied_math_test.pickle'
-GLOBAL_TIMEOUT_LEN = 10 # seconds
+GLOBAL_TIMEOUT_LEN = 16*60*60 # seconds, 2 hours in seconds
 PROCESS_TIMEOUT_LEN = np.inf # seconds
 MIN_RELEVANCE= 0.7
-MIN_FREQ = 0.002 # 0.006%
-MAX_FREQ = 0.005 # 0.05%
+MIN_FREQ = 0.00006 # 0.006%
+MAX_FREQ = 0.0005 # 0.05%
 MIN_YEAR = 1920
 MAX_DIM = 2
-NUM_PROCESSES = 16 # number of processes to do with multithreading
+NUM_PROCESSES = 24 # number of processes to do with multithreading
 OPTIMIZE_CONDITION = lambda h: h['dimension'] == 1 # rows which we optimize a cycle for
 CYCLE_REP = True # whether to find a cycle rep
-BOUNDING_REP = True # whether to find a bounding chain rep
+BOUNDING_REP = False # whether to find a bounding chain rep
 
 
 def make_graph(file, min_relevance, min_freq, max_freq, min_year):
@@ -117,7 +112,7 @@ def optimal_bounding_chain_rep(cycle):
             birth_simplex=cycle['birth simplex']
         )
     time_to_solve = time.time() - start
-    print(f'Boudning chain for {cycle.name} optimized in {time_to_solve} secs')
+    print(f'Bounding chain for {cycle.name} optimized in {time_to_solve} secs')
     
     return optimal, time_to_solve
 
@@ -194,7 +189,7 @@ def optimize_cycles(homology, num_processes, process_timeout, global_timeout):
             future = pool.schedule(
                     optimize_cycle,
                     (homology.loc[id],),
-                    timeout=process_timeout # timout process after either the process_timout or we run out of time in the global timout
+                    timeout=min(process_timeout, global_timeout) # timout process after either the process_timout or we run out of time in the global timout
                 )
             futures.append((id, future)) # a dictionary breaks, but this essentially works like a dictionary
         
@@ -203,7 +198,7 @@ def optimize_cycles(homology, num_processes, process_timeout, global_timeout):
             time.sleep(1) # check again after a second
 
             if time.time() - start >= global_timeout: # wait until global timeout
-                [f[1].cancel() for f in futures] # cancel all remaining processes if timout finishes
+                [f.cancel() for id, f in futures] # cancel all remaining processes if timout finishes
 
     return futures
 
@@ -260,7 +255,10 @@ def collect_cycles(futures, cycle_rep, bounding_rep, concepts):
             
             if bounding_rep: # if we have optimized bounding chains
                 # bounding chain info
-                dirty_bounding_chain = opt_res[i].loc['optimal bounding chain', 'chain'] # dataframe of the simplicies and coefficeints in the optimal bounding chain
+                if opt_res[i] is not None:
+                    dirty_bounding_chain = opt_res[i].loc['optimal bounding chain', 'chain'] # dataframe of the simplicies and coefficeints in the optimal bounding chain
+                else:
+                    dirty_bounding_chain = pd.DataFrame(columns=['simplex', 'filtration', 'coefficient']) # handle none bounding chains (cycle doesn't fill in)
                 bounding_chain = clean_chain(dirty_bounding_chain) # remove coefficients that round to 0
 
                 cyc_res['optimal bounding chain representative'] = bounding_chain # cycle info
@@ -270,7 +268,6 @@ def collect_cycles(futures, cycle_rep, bounding_rep, concepts):
                 cyc_res['optimal bounding chain nrz'] = len(dirty_bounding_chain) - len(dirty_bounding_chain) # number of coefficeints rounded to 0
                 cyc_res['optimal bounding chain time'] = opt_res[i+1] # time (seconds) to optimize cycle
 
-            results.append(cyc_res)
         except Exception as err: # collect the errors
             cyc_res['error'] = err
         results.append(cyc_res)
@@ -295,11 +292,9 @@ def collect_cycles(futures, cycle_rep, bounding_rep, concepts):
 def main():
     ## setup process
     gloabl_start = time.time() # global start time
-    if not os.path.exists(RESULT_PATH): # make sure we have a place to save the file
-        os.makedirs(RESULT_PATH)
 
     ## create the graph
-    G, time_for_graph = make_graph(DATA_PATH+CONCEPT_FILE, MIN_RELEVANCE, MIN_FREQ, MAX_FREQ, MIN_YEAR)
+    G, time_for_graph = make_graph(CONCEPT_FILE, MIN_RELEVANCE, MIN_FREQ, MAX_FREQ, MIN_YEAR)
     adj = mn.adj_matrix(G, weight='norm_year', fill_diag=True)
     print(f'Graph construction finished in {time_for_graph} secs')
 
@@ -310,6 +305,7 @@ def main():
     ## optimize cycles
     print(f"Optimizing {sum(OPTIMIZE_CONDITION(homology))} cycles")
     futures = optimize_cycles(homology[OPTIMIZE_CONDITION(homology)], NUM_PROCESSES, PROCESS_TIMEOUT_LEN, GLOBAL_TIMEOUT_LEN)
+    print('Finished optimizing cycles, collecting and saving results')
 
     ## collect results
     concepts = np.array(G.nodes) # list of concepts, index -> node key in network (and simplicial complex)
@@ -317,7 +313,7 @@ def main():
     homology = homology.join(results) # add to homology dict (I don't wanna save extra stuff)
 
     # save results
-    with open(RESULT_PATH+RESULT_FILE, 'wb') as results_file:
+    with open(RESULT_FILE, 'wb') as results_file:
         # serialize and save
         pickle.dump(
                 {
