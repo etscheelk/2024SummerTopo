@@ -11,10 +11,10 @@ This should avoid most of the issues while staying fast through multithreading
 '''
 
 # load some packages
-import sys; sys.path.append("/Users/gavinengelstad/Documents/Documents - Gavin’s MacBook Pro/School/Summer '24/Research/2024SummerTopo/Gavin/utils")
+import sys; sys.path.append("/Users/gengelst/Documents/GitHub/2024SummerTopo/Gavin/utils")
 from multiprocessing import Pool, Manager
-from queue import Empty
 import make_network as mn
+from queue import Empty
 import pandas as pd
 import oatpy as oat
 import numpy as np
@@ -22,18 +22,19 @@ import pickle
 import time
 
 # config
-CONCEPT_FILE = 'datasets/concept_network/concepts_Zoology_608.csv' # Applied Mathematics
-RESULT_FILE = 'test.pickle'
-GLOBAL_TIMEOUT_LEN = 15 # seconds, 2 hours in seconds
+CONCEPT_FILE = 'datasets/concept_network/articles_category_for_2l_abstracts_concepts_processed_v1_EX_102.csv.gz' # Applied Mathematics
+RESULT_FILE = 'results/test_glp.pickle'
+GLOBAL_TIMEOUT_LEN = 20*60 # seconds, 2 hours in seconds
 MIN_RELEVANCE= 0.7
-MIN_FREQ = 0.001 # 0.006%
+MIN_FREQ = 0.0006 # 0.006%
 MAX_FREQ = 0.005 # 0.05%
 MIN_YEAR = 1920
 MAX_DIM = 2
 NUM_PROCESSES = 12 # number of processes to do with multithreading
 OPTIMIZE_CONDITION = lambda h: h['dimension'] == 1 # rows which we optimize a cycle for
 CYCLE_REP = True # whether to find a cycle rep
-BOUNDING_CHAIN = False # whether to find a bounding chain rep
+BOUNDING_CHAIN = True # whether to find a bounding chain rep
+CLEAN_TOL = 0.1 # how close a coefficient should be to round it to 0
 
 
 def make_graph(file, min_relevance, min_freq, max_freq, min_year):
@@ -58,9 +59,9 @@ def make_graph(file, min_relevance, min_freq, max_freq, min_year):
 
 def clean_chain(dirty_chain):
     '''
-    Cleans a chain by removing any cofficeints that round to 0
+    Cleans a chain by removing any cofficeints that are close to 0
     '''
-    filter = round(dirty_chain['coefficient'].astype(float)) != 0 # true for anything that doesn't round to zero
+    filter = np.logical_not(np.isclose(dirty_chain['coefficient'].astype(float), 0, atol=CLEAN_TOL)) # true for anything that shouldnt be rounded to 0
     chain = dirty_chain[filter] # keep only where filter is true
 
     return chain
@@ -95,7 +96,7 @@ def optimize_cycle_rep(factored, cycle):
     # add everything to the cycle dictionary
     cycle['optimal cycle representative'] = optimal_cycle # cycle info
     cycle['optimal cycle nnz'] = len(optimal_cycle) # number of nonzero entries in the cycle
-    cycle['cycle nodes'] = cycle_nodes # nodes in the cycle
+    cycle['optimal cycle nodes'] = cycle_nodes # nodes in the cycle
     cycle['dirty optimal cycle representative'] = dirty_optimal_cycle # cycle without rounding
     cycle['dirty optimal cycle nnz'] = len(dirty_optimal_cycle) # length of cycle prorounding
     cycle['optimal cycle nrz'] = len(dirty_optimal_cycle) - len(optimal_cycle) # number of coefficeints rounded to 0
@@ -104,7 +105,7 @@ def optimize_cycle_rep(factored, cycle):
     return cycle
 
 
-def optimize_bounding_chain(cycle):
+def optimize_bounding_chain(factored, cycle):
     '''
     UNFINISHED, currently doesn't do anything
 
@@ -112,6 +113,29 @@ def optimize_bounding_chain(cycle):
 
     Saves to the cycle dictionary and returns it
     '''
+    # solve problem
+    start = time.time()
+    optimal = factored.optimize_bounding_chain( # optimial cycle rep
+            birth_simplex=cycle['birth simplex']
+        )
+    time_to_solve = time.time() - start
+    print(f'Bounding chain for {cycle['id']} optimized in {time_to_solve} secs')
+
+    # store results
+    # bounding chain info
+    if optimal is not None:
+        dirty_bounding_chain = optimal.loc['optimal bounding chain', 'chain'] # dataframe of the simplicies and coefficeints in the optimal bounding chain
+    else:
+        dirty_bounding_chain = pd.DataFrame(columns=['simplex', 'filtration', 'coefficient']) # handle none bounding chains (cycle doesn't fill in)
+    bounding_chain = clean_chain(dirty_bounding_chain) # remove coefficients that round to 0
+
+    cycle['optimal bounding chain representative'] = bounding_chain # bounding chian info
+    cycle['optimal bounding chain nnz'] = len(bounding_chain) # number of nonzero entries in the chain
+    cycle['dirty optimal bounding chain representative'] = dirty_bounding_chain # chain without rounding
+    cycle['dirty optimal bounding chain nnz'] = len(dirty_bounding_chain) # length of chain prerounding
+    cycle['optimal bounding chain nrz'] = len(dirty_bounding_chain) - len(dirty_bounding_chain) # number of coefficeints rounded to 0
+    cycle['optimal bounding chain time'] = time_to_solve # time (seconds) to optimize bounding chain
+
     return cycle
 
 
@@ -128,6 +152,7 @@ def optimize_cycles(factored, q):
         if BOUNDING_CHAIN:
             cycle = optimize_bounding_chain(factored, cycle)
 
+        results.append(cycle)
 
         # end conditions
         # timout
@@ -213,7 +238,7 @@ def main():
 
         homology_res = pool.apply_async(homology_worker, (adj, q)) # this will return homology, time_for_homology, and a bunch of optimized cycles
         results = []
-        for _ in range(NUM_PROCESSES-1):
+        for _ in range(NUM_PROCESSES-1): # homology_worker counts as the first, then do num_workers other ones
             results.append(pool.apply_async(worker, (adj, q))) # start a regular optimize cycle iteration
         
         homology, time_for_homology, cycles = homology_res.get() # get homology info from the first thread
@@ -223,7 +248,7 @@ def main():
     print('Finished, collecting results')
     concepts = np.array(G.nodes) # list of concepts, index -> node key in network (and simplicial complex)
     for c in cycles:
-        c['cycle nodes'] = concepts[c['cycle nodes']]
+        c['optimal cycle nodes'] = concepts[c['optimal cycle nodes']]
     optimized = pd.DataFrame(cycles)
 
     # save results
