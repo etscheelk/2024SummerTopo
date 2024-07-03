@@ -19,6 +19,8 @@ Right now, the document has
 '''
 
 # preliminaries
+import Gavin.utils.random_complexes as rc
+# import random_complexes as rc
 import oatpy as oat
 import pandas as pd
 import numpy as np
@@ -180,19 +182,19 @@ def persistance_image(barcode: pd.DataFrame,
         dim = list(persistance_diagram['dimension'].unique()) # loop over dim later, needs to be defined
 
     # matricies to calculate peristance image
-    # x, y coordinate of every entry i, j in the persistance image is x[i, j], y[i, j]
-    x = np.linspace(0, 1, res)
-    y = np.linspace(0, 1, res)
-    x, y = np.meshgrid(x, y)
+    # x, y coordinate of every entry i, j in the persistance image is x[0][i, j], x[1][i, j]
+    x = np.meshgrid(*[np.linspace(0, 1, res) for _ in range(2)])
 
     # apply gaussians and get images
-    var = 2 * sigma**2 # actualy 2*variance but this is what we use so
     persistance_images = []
     for d in dim: # create a different persisance image for each dimension
         d_persistance_diagram = persistance_diagram[persistance_diagram['dimension'] == d] # peristance diagram fo dimension
-        gaussians = [w * np.exp(-((x-b)**2 + (y-l)**2)/var) for w, b, l in zip(d_persistance_diagram['weight'], d_persistance_diagram['birth'], d_persistance_diagram['lifetime'])]
-        # use gaussian formula weighting by the calculated weight and using the point location for all x and y in the matrix
-        persistance_image = np.full((res, res), 0) + sum(gaussians) # full makes sure we have all 0s if dimension has no features
+        gaussians = rc.gen_stacked_gaussians(
+                As=np.array(d_persistance_diagram['weight']),
+                x0s=np.array(d_persistance_diagram[['birth', 'lifetime']]),
+                sigmas=np.full(len(d_persistance_diagram), sigma)
+            )
+        persistance_image = np.full((res, res), 0) + gaussians(np.stack(x, axis=-1)) # full makes sure we have all 0s if dimension has no features
         persistance_images.append(persistance_image)
     
     # make a vector (if we should)

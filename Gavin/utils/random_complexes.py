@@ -158,6 +158,7 @@ def gen_gaussian(A: float,
     # 1d gaussian
     if isinstance(x0, float):
         gaussian = lambda x: A * np.exp(-(x - x0)**2 / var) # follows gaussian formula
+        return gaussian
 
     return gaussian
 
