@@ -12,7 +12,7 @@ This should avoid most of the issues while staying fast through multithreading
 
 # load some packages
 import sys; sys.path.append("/Users/gengelst/Documents/GitHub/2024SummerTopo/Gavin/utils")
-from multiprocessing import Pool, Manager
+import multiprocessing as mp
 import make_network as mn
 from queue import Empty
 import pandas as pd
@@ -233,8 +233,8 @@ def main():
     # 2. Optimizes the cycles for however much time is left under the global timeout
     # 3. Collects the results 
     # 4. Returns the collected results to be turned into a dataframe
-    with Pool(NUM_PROCESSES) as pool:
-        q = Manager().Queue() # queue will keep the rows that are yet to be calculated
+    with mp.get_context('spawn').Pool(NUM_PROCESSES) as pool:
+        q = mp.Manager().Queue() # queue will keep the rows that are yet to be calculated
 
         homology_res = pool.apply_async(homology_worker, (adj, q)) # this will return homology, time_for_homology, and a bunch of optimized cycles
         results = []

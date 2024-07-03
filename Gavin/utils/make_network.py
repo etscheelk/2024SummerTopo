@@ -122,9 +122,9 @@ def filter_article_concept_file(file: str | pd.DataFrame,
     # number of articles
     n_articles = df['article_id'].nunique()
     if isinstance(min_articles, float): # filter as percent, not number of articles
-        min_articles = int(min_articles * n_articles)
+        min_articles = np.ceil(min_articles * n_articles).astype(int)
     if isinstance(max_articles, float): # filter as percent, not number of articles
-        max_articles = int(max_articles * n_articles)
+        max_articles = np.floor(max_articles * n_articles).astype(int)
     sizes = df.groupby('concept').transform('size') # match each concept to the number of times it appears
     df = df[(sizes >= min_articles)
             & (sizes <= max_articles)]
