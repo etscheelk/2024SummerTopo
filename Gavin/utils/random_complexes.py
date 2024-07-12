@@ -85,7 +85,7 @@ def erdos_renyi_complex(N: int,
     i, j = i[filter], j[filter] # keep them
 
     # adjacency matrix
-    adj = sparse.csr_matrix((N, N)) # N by N adjacency matrix
+    adj = sparse.dok_array((N, N)) # N by N adjacency matrix
     adj[i, j] = edge_weights # set the found coordinates to the values in the edge_weights list
     adj += adj.T # make it symetric
 
@@ -96,6 +96,7 @@ def erdos_renyi_complex(N: int,
 
     # format adjacency matrix
     adj.setdiag(0) # oat needs diagnal to be defined and smaller than entries, this is an easy way to do that
+    adj = adj.tocsr()
     adj = adj.sorted_indices()
 
     return adj
@@ -314,7 +315,7 @@ def complex_from_points(pts: np.ndarray[float],
 
     # if no filtering has to be done, return now
     if density is None and num_edges is None:
-        dist_mat = sparse.csr_matrix(dist_mat) # oat likes sparse matricies
+        dist_mat = sparse.dok_array(dist_mat) # oat likes sparse matricies
     else: # keep only the first few edges
         if num_edges is None: # density is defined
             num_edges = int(density * n*(n-1)/2)
@@ -324,12 +325,12 @@ def complex_from_points(pts: np.ndarray[float],
         dist_order = np.argsort(dist_arr) # sort the indicies, argsort so we can reference i, j at that point
         keep = dist_order[:num_edges] # keep num_edges elements (as edge weights)
 
-        dist_mat = sparse.csr_array((n, n)) # n by n empty sparse array
+        dist_mat = sparse.dok_array((n, n)) # n by n empty sparse array
         dist_mat[i[keep], j[keep]] = dist_arr[keep] # set elements
         dist_mat += dist_mat.T # symetrical
 
     if normalize:
-        dist_mat = dist_mat / dist_mat.max() # make longest length 1
+        dist_mat = dist_mat / max(dist_mat.values()) # make longest length 1
 
     # graph
     if return_graph:
@@ -338,6 +339,7 @@ def complex_from_points(pts: np.ndarray[float],
 
     # format it
     dist_mat.setdiag(0) # make diagnal 0 (oat needs it)
+    dist_mat = dist_mat.tocsr()
     dist_mat = dist_mat.sorted_indices()
     
     return dist_mat
