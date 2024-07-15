@@ -22,8 +22,9 @@ and can be initialized to speed up the problem setup if you're solving more than
 1 problem. 
 
 TODO:
+    - Create a better basis for the cycle problem
+    - Area cost for Bounding Chains
     - Triangle loss problem
-    - Talk to Lori
     - Test it
 '''
 
@@ -45,15 +46,16 @@ class Cost(Enum):
         `FILTRATION`: Weights based on the filtration. Therefore, it creates a
         chain with simplcicies that show up earlier
     '''
-    UNIFORM = 1
-    FILTRATION = 2
+    UNIFORM = lambda chain: np.ones(len(chain))
+    FILTRATION = lambda chain: chain['filtration'].to_numpy()
 
 
-class ProblemType(Enum):
+class LPType(Enum):
     '''
-    Possible problem types for the optimization problems. Made for testing, in
-    reality `POS_NEG` is faster for (almost?) all problems and should always be
-    used
+    Possible LP types for the optimization problems. Made for testing, in reality
+    `POS_NEG` is faster for (almost?) all problems and should always be used
+
+    Update: `MIN_VECTOR` might be faster for larger cycle rep problems
 
     Types
         `POS_NEG`: Uses x^+ and x^- to represent the values in the problem. Allows
@@ -92,6 +94,23 @@ class Basis(Enum):
     CYCLE_BOUNDRY = 2
 
 
+class ProblemType(Enum):
+    '''
+    A class for choosing the problem type to solve
+
+    Essentailly, determines whether you use a strict or "inclusive" inequalty when
+    deciding which cycles to include in the constraint matrix
+
+    Types:
+        `BEFORE_BIRTH`: Include all cycles that are born and die strictly before the
+        cycle we optimize
+        `AT_BIRTH`: Include all cycles that are born and die at the same time as or
+        before the cycle we optimize
+    '''
+    BEFORE_BIRTH = lambda x, y: x < y
+    AT_BIRTH = lambda x, y: x <= y
+
+
 class CycleOptimizer:
     '''
     Class to optimize cycles.
@@ -113,10 +132,14 @@ class CycleOptimizer:
         `get_basis`: Return the basis the optimizer uses to optimize cycles
 
     Instance Variables:
-        `problem` (ProblemType): The default LP solution method for the optimizer
-        to use. Can be overwritten to make a different solver default
         `cost` (Cost): The default cost to use in the LPs. Can be overwritten to
         make a different cost default
+        `problem` (ProblemType): The default problem for the optimizer to solve.
+        Can be overwritten to make a different solver default
+        `integer` (bool): Whether to solve an integer or continuous Lp by default.
+        Can be overwritten to make a different solver default
+        `lp` (LPType): The default LP solution method for the optimizer to use.
+        Can be overwritten to make a different solver default
         `simplex_indicies` (pd.DataFrame): The simplcies in the cycle we optmimze
         corresponding to the rows in the cycle basis
         `cycle_indicies` (pd.DataFrame): The columns of the cycle basis, each of
@@ -134,9 +157,11 @@ class CycleOptimizer:
                          factored: any, # should be a FactoredBoundryMatrixVR
                          filtration: float | None = None,
                          return_objective: bool = False,
-                         problem: ProblemType = ProblemType.POS_NEG,
                          cost: Cost = Cost.FILTRATION,
-                         basis: Basis = Basis.JORDAN
+                         problem: ProblemType = ProblemType.AT_BIRTH,
+                         integer: bool = False,
+                         basis: Basis = Basis.JORDAN,
+                         lp: LPType = LPType.POS_NEG
                          ) -> pd.DataFrame | tuple[pd.DataFrame, float]:
         '''
         Optimizes a cycle rep. This can be faster than instantiating the object for
@@ -153,13 +178,18 @@ class CycleOptimizer:
             `return_objective` (bool): Whether or not to return the value of the
             optimized objective. If False, just returns the optimized cycle. If True,
             returns a tuple with the cycle and the objective
-            `problem` (ProblemType): The LP to solve to optimize the cycle. POS_NEG is
-            fastest and, therefore,  default
             `cost` (Cost): The cost weighting. If UNIFORM, we minimize the number of
             simplicies in the cycle. If FILTRATION, we minimize the total filtration
             of the cycle. Default FILTRATION
+            `problem` (ProblemType): The filter applied to the cycle to decide whether
+            they go in the LP. Default AT_BIRTH, which includes all cycles that are
+            born and die at or before the cycle we optimize
+            `integer` (bool): Whether to solve an integer or continous LP. Default
+            False
             `basis` (Basis): The basis to use for the cycles. Default JORDAN, whcih
             creates a minimal cycle basis
+            `lp` (LPType): The LP to solve to optimize the cycle. POS_NEG is
+            fastest and, therefore,  default
 
         Returns:
             `optimal_cycle_rep` (pd.DataFrame): A dataframe representing the cycle.
@@ -175,9 +205,9 @@ class CycleOptimizer:
         
         # simplicies we optimize over
         simplex_indicies = factored.indices_boundary_matrix()
-        simplex_indicies['filtration'] = simplex_indicies['filtration'].astype(float)
         simplex_indicies = simplex_indicies[(simplex_indicies['simplex'].str.len() == cycle_dim+1) # keep simplicies of the same dimension
-                                            & (simplex_indicies['filtration'] <= filtration) # keep simplcicies born at or before the time we're looking for
+                                            & (problem(simplex_indicies['filtration'], filtration) # keep simplcicies born at or before the time we're looking for
+                                               | simplex_indicies['simplex'].isin(cycle_rep['simplex'])) # keep simplicice in the cycle
                                             ].reset_index(drop=True) # well use the indexes to create the basis matrix
         
         # simplex -> index in everything map
@@ -198,9 +228,12 @@ class CycleOptimizer:
             case Basis.JORDAN:
                 # get cycles we want to find
                 jordan_indicies = factored.jordan_block_indices()
+                cycle_i = jordan_indicies.loc[jordan_indicies['birth simplex'].apply(tuple) == tuple(birth_simplex)].index[0] # index of the cycle
+                death = max(jordan_indicies.loc[cycle_i, 'death filtration'], filtration)
                 jordan_indicies = jordan_indicies[(jordan_indicies['dimension'] == cycle_dim) # keep cycles of the same dimension
-                                                  & (jordan_indicies['birth filtration'] <= filtration) # keep cycles born at or before the time we're looking for
-                                                  & (jordan_indicies['birth simplex'].apply(tuple) != tuple(birth_simplex))] # don't have the orginal cycle in the basis
+                                                  & (problem(jordan_indicies['birth filtration'], filtration)) # keep cycles born at or before the time we're looking for
+                                                  & (problem(jordan_indicies['death filtration'], death))
+                                                  & (jordan_indicies.index != cycle_i)] # don't have the orginal cycle in the basis
 
                 # create the basis
                 cycles = [factored.jordan_basis_vector(b)[['simplex', 'coefficient']] for b in jordan_indicies['birth simplex']]
@@ -212,19 +245,24 @@ class CycleOptimizer:
                 homology = factored.homology(
                         return_cycle_representatives=True, # used to create the cycle basis
                         return_bounding_chains=False
-                    )[['dimension', 'birth', 'birth simplex', 'cycle representative']] # we only care about these columns
+                    )[['dimension', 'birth', 'birth simplex', 'death', 'cycle representative']] # we only care about these columns
+                cycle_i = homology.loc[homology['birth simplex'].apply(tuple) == tuple(birth_simplex)].index[0] # index of the cycle
+                death = max(homology.loc[cycle_i, 'death'], filtration)
                 homology = homology[(homology['dimension'] == cycle_dim) # make basis of cycles in the right dimension
-                                    & (homology['birth'] <= filtration) # basis of cycles born before the time were looking at
-                                    & (homology['birth simplex'].apply(tuple) != tuple(birth_simplex))] # dont have cycle of interest in basis
+                                    & problem(homology['birth'], filtration) # basis of cycles born before the time were looking at
+                                    & problem(homology['death'], death)
+                                    & (homology.index != cycle_i)] # dont have cycle of interest in basis
                 cycle_basis = CycleOptimizer.__create_cycle_basis(homology['cycle representative'], simplex_index_map)
 
                 # create the boundry basis
                 simplex_indicies = factored.indices_boundary_matrix() # we could prolly reuse this from before, but its fast so idc
                 cycle_dim_simplicies = simplex_indicies[(simplex_indicies['simplex'].str.len() == cycle_dim+1) # keep simplicies of the same dimension
-                                                        & (simplex_indicies['filtration'] <= filtration) # keep simplcicies born at or before the time we're looking for
+                                                        & (problem(simplex_indicies['filtration'], filtration) # keep simplcicies born at or before the time we're looking for
+                                                           # don't need death filter since filtration and death times are the same for simplicies
+                                                           | simplex_indicies['simplex'].isin(cycle_rep['simplex'])) # keep simplicice in the cycle
                                                         ] # well use the indexes to create the boundry matrix
                 higher_dim_simplicies = simplex_indicies[(simplex_indicies['simplex'].str.len() == cycle_dim+2) # keep simplicies of the same dimension
-                                                         & (simplex_indicies['filtration'] <= filtration) # keep simplcicies born at or before the time we're looking for
+                                                         & problem(simplex_indicies['filtration'], filtration) # keep simplcicies born at or before the time we're looking for
                                                          ] # well use the indexes to create the boundry matrix
                 boundry_matrix = factored.boundary_matrix(
                     ).astype(float # everyhting likes floats more
@@ -233,24 +271,25 @@ class CycleOptimizer:
                 # combine them into one matrix
                 cycle_basis = sparse.hstack((cycle_basis, boundry_matrix))
 
-        # get cost
-        cost = CycleOptimizer.__get_cost(initial_cycle_rep, cost)
-        
         # make sure theres something to optimize
         if cycle_basis.shape[1] == 0:
             optimal_cycle_rep = CycleOptimizer.__collect_results(initial_cycle_rep, initial_cycle_rep['coefficient'])
 
             # return
             if return_objective:
-                return optimal_cycle_rep, np.abs(optimal_cycle_rep['coefficent'] * cost).sum()
+                return optimal_cycle_rep, np.abs(cost(optimal_cycle_rep) * optimal_cycle_rep['coefficient']).sum()
             return optimal_cycle_rep
+
+        # get cost
+        cost = cost(initial_cycle_rep)
 
         # setup problem and solve
         coeffs, obj = CycleOptimizer.__optimize(
                 initial_cycle_rep['coefficient'].to_numpy(),
                 cycle_basis,
                 cost,
-                problem
+                integer,
+                lp
             )
         
         # get solution
@@ -267,9 +306,11 @@ class CycleOptimizer:
     def __init__(self,
                  factored: any, # FactoredBoundryMatrixVR
                  cycle_dim: int,
-                 problem: ProblemType = ProblemType.POS_NEG,
                  cost: Cost = Cost.FILTRATION,
+                 problem: ProblemType = ProblemType.AT_BIRTH,
+                 integer: bool = False,
                  basis: Basis = Basis.JORDAN,
+                 lp: LPType = LPType.POS_NEG,
                  supress_gurobi: bool = False
                  ) -> None:
         '''
@@ -280,20 +321,27 @@ class CycleOptimizer:
             `factored` (FactoredBoundryMatrixVR): The factored matrix for the cycles.
             Should have dimension cycle_dim+1 at least
             `cycle_dim` (int: Dimension of the cycles we want cycle reps for
-            `problem` (ProblemType): The default LP for the optimizer to use to solve
-            for optimal bounding chains. Can be either POS_NEG or ABS_VALUE, though
-            POS_NEG is faster and suggested. Default POS_NEG.
             `cost` (Cost): The cost to use to optimize bounding chains. Can be either
             FILTRATION or UNIFORM. Default FILTRATION
+            `problem` (ProblemType): The default filter applied to the cycle to decide
+            whether they go in the LP. Default AT_BIRTH, which includes all cycles that
+            are born and die at or before the cycle we optimize
+            `integer` (bool): Whether to solve an integer or continous LP by default.
+            Default False
             `basis` (Basis): The basis to use for the cycles. Default JORDAN, whcih
             creates a minimal cycle basis
-            supress_gurobi (bool): Whether to supress Gurobi output or not. Default
+            `lp` (LPType): The default LP for the optimizer to use to solve
+            for optimal bounding chains. Can be POS_NEG, ABS_VALUE, or MIN_VEC, though
+            POS_NEG is faster and suggested. Default POS_NEG.
+            `supress_gurobi` (bool): Whether to supress Gurobi output or not. Default
             False
         '''
         # define default problem/cost
-        self.problem = problem
         self.cost = cost
+        self.problem = problem
+        self.integer = integer
         self.__basis = basis
+        self.lp = lp
         self.num_solved = 0
 
         # simplicies we optimize over
@@ -322,9 +370,9 @@ class CycleOptimizer:
                 
                 # formatting
                 jordan_indicies['birth simplex'] = jordan_indicies['birth simplex'].apply(tuple) # hashable
-                self.cycle_indicies = jordan_indicies[['birth simplex', 'birth filtration']].rename(columns={ # save space
-                        'birth simplex': 'simplex',
-                        'birth filtration': 'filtration'
+                self.cycle_indicies = jordan_indicies[['birth simplex', 'birth filtration', 'death filtration']].rename(columns={ # save space
+                        'birth filtration': 'birth',
+                        'death filtration': 'death'
                     })
 
             # cycle boundry basis
@@ -333,7 +381,7 @@ class CycleOptimizer:
                 homology = factored.homology(
                         return_cycle_representatives=True, # used to create the cycle basis
                         return_bounding_chains=False
-                    )[['dimension', 'birth', 'birth simplex', 'cycle representative']] # we only care about these columns
+                    )[['dimension', 'birth', 'birth simplex', 'death', 'cycle representative']] # we only care about these columns
                 homology = homology[homology['dimension'] == cycle_dim # make basis of cycles in the right dimension
                                     ].reset_index(drop=True) # well use the indicies to slice the basis matrix
                 cycle_basis = CycleOptimizer.__create_cycle_basis(homology['cycle representative'], simplex_index_map)
@@ -351,12 +399,15 @@ class CycleOptimizer:
 
                 # formatting
                 self.cycle_indicies = pd.concat([ # matrix is indexed by homology on top of the boundries
-                        homology.assign(
-                                simplex=homology['birth simplex'].apply(tuple) # make this hashable
+                        homology.assign(**{
+                                'birth simplex': lambda h: h['birth simplex'].apply(tuple) # make this hashable
+                            })[['birth simplex', 'birth', 'death']], # keep relevant columns
+                        higher_dim_simplicies.assign(simplex=None  # the simplicices are too high dimension to matter
+                            ).assign(death=higher_dim_simplicies['filtration'] # cycle "dies" at the same time it's born
                             ).rename(columns={
-                                'birth': 'filtration' # keep names the same
-                            })[['simplex', 'filtration']], # keep relevant columns
-                        higher_dim_simplicies.assign(simplex=None) # the simplicices are too high dimension to matter
+                                'simplex': 'birth simplex',
+                                'filtration': 'birth'
+                            })
                     ]).reset_index(drop=True) # cycle basis is indexed starting at 0
 
         # create the model enviorment
@@ -369,8 +420,10 @@ class CycleOptimizer:
                        birth_simplex: pd.DataFrame,
                        filtration: float | None = None,
                        return_objective: bool = False,
+                       cost: Cost | None = None,
                        problem: ProblemType | None = None,
-                       cost: Cost | None = None
+                       integer: bool | None = None,
+                       lp: LPType | None = None
                        ) -> pd.DataFrame | tuple[pd.DataFrame, float]:
         '''
         Optimizes a cycle. Uses the setup from the object to speed up the process and
@@ -384,10 +437,15 @@ class CycleOptimizer:
             `return_objective` (bool): Whether or not to return the value of the
             optimized objective. If False, just returns the optimized cycle. If True,
             returns a tuple with the cycle and the objective
-            `problem` (ProblemType | None): The LP to solve to optimize the cycle. If
+            `cost` (Cost | None): The cost to use. Can be FILTRATION or UNIFORM. If
+            None, uses the deafult for the optimizer. Default None
+            `problem` (ProblemType | None):  The default filter applied to the cycle
+            to decide whether they go in the LP. If None, uses the default for the
+            optimizer. Default None.
+            `integer` (bool | None): Whether to solve an integer or continous LP. If
+            None, uses the default for the optimizer. Default None.
+            `lp` (LPType | None): The LP to solve to optimize the cycle. If
             None, uses the default for the optimizer. Default None
-            `cost` (Cost): The cost to use. Can be FILTRATION or UNIFORM. If None, 
-            uses the deafult for the optimizer. Default None
 
         Returns:
             `optimal_cycle_rep` (pd.DataFrame): A dataframe representing the cycle.
@@ -396,48 +454,55 @@ class CycleOptimizer:
             `return_objective` is True.
         '''
         # set problem and cost
-        problem = self.problem if problem is None else problem
         cost = self.cost if cost is None else cost
+        problem = self.problem if problem is None else problem
+        integer = self.integer if integer is None else integer
+        lp = self.lp if lp is None else lp
+        self.num_solved += 1
 
         # where the cycle is
-        cycle_i = self.cycle_indicies[self.cycle_indicies['simplex'] == tuple(birth_simplex)].index[0] # get index for the cycle 
+        cycle_i = self.cycle_indicies[self.cycle_indicies['birth simplex'] == tuple(birth_simplex)].index[0] # get index for the cycle 
 
         # figure out filtration
         if filtration is None:
-            filtration = self.cycle_indicies.loc[cycle_i, 'filtration']
+            filtration = self.cycle_indicies.loc[cycle_i, 'birth']
+        death = max(self.cycle_indicies.loc[cycle_i, 'death'], filtration)
+
+        # initial cycle rep
+        initial_coeffs = np.reshape(self.cycle_basis[self.simplex_indicies.index, cycle_i].toarray(), -1)
 
         # simplcicies to include
-        simplex_indicies = self.simplex_indicies[self.simplex_indicies['filtration'] <= filtration] # include everything born before the filtration
-
-        # get cost
-        cost = CycleOptimizer.__get_cost(simplex_indicies, cost)
+        simplex_indicies = self.simplex_indicies[problem(self.simplex_indicies['filtration'], filtration)
+                                                 | (initial_coeffs != 0)] # include everything born before the filtration
+        initial_coeffs = initial_coeffs[simplex_indicies.index]
 
         # cycle basis 
-        cycle_indicies = self.cycle_indicies[(self.cycle_indicies['filtration'] <= filtration) # keep cycles born at or before the time we're looking for
-                                             & (self.cycle_indicies['simplex'] != tuple(birth_simplex))] # don't have orginal cycle in the basis
+        cycle_indicies = self.cycle_indicies[problem(self.cycle_indicies['birth'], filtration) # keep cycles born at or before the time we're looking for
+                                             & problem(self.cycle_indicies['death'], death)
+                                             & (self.cycle_indicies.index != cycle_i)] # don't have orginal cycle in the basis
         
         # make sure theres a problem to solve
         if len(cycle_indicies) == 0:
             optimal_cycle_rep = CycleOptimizer.__collect_results(simplex_indicies, initial_coeffs)
 
             # return 
-            self.num_solved += 1
             if return_objective:
-                return optimal_cycle_rep, np.abs(optimal_cycle_rep['coefficient'] * cost).sum()
+                return optimal_cycle_rep, np.abs(cost(optimal_cycle_rep) * optimal_cycle_rep['coefficient']).sum()
             return optimal_cycle_rep
         
+        # get cost
+        cost = cost(simplex_indicies)
+
         # cycle basis pt 2
         cycle_basis = self.cycle_basis[simplex_indicies.index, :][:, cycle_indicies.index]
-        
-        # initial cycle coefficients
-        initial_coeffs = np.reshape(self.cycle_basis[simplex_indicies.index, cycle_i].toarray(), -1)
 
         # setup problem and solve
         coeffs, obj = CycleOptimizer.__optimize(
                 initial_coeffs,
                 cycle_basis,
                 cost,
-                problem,
+                integer,
+                lp,
                 env=self.gp_env
             )
         
@@ -445,7 +510,6 @@ class CycleOptimizer:
         optimal_cycle_rep = CycleOptimizer.__collect_results(simplex_indicies, coeffs)
 
         # solve the model
-        self.num_solved += 1
         if return_objective:
             return optimal_cycle_rep, obj
         return optimal_cycle_rep
@@ -481,20 +545,9 @@ class CycleOptimizer:
             cycle_basis[c_i, i] = c['coefficient'].astype(float) # put coefficients into cycle basis
 
         return cycle_basis
-    
-    @staticmethod
-    def __get_cost(cycle_rep, cost):
-        '''
-        Get the cost vector for a bounding chain LP
-        '''
-        match cost:
-            case Cost.UNIFORM: # with uniform cost, use a vector of ones
-                return np.ones(len(cycle_rep))
-            case Cost.FILTRATION: # return the filtration values as an array
-                return cycle_rep['filtration'].to_numpy()
             
     @staticmethod
-    def __optimize(cycle_rep, cycle_basis, cost, problem, env=None):
+    def __optimize(cycle_rep, cycle_basis, cost, integer, lp, env=None):
         '''
         Decides which problem to use and passes the model params to that
         '''
@@ -502,13 +555,13 @@ class CycleOptimizer:
         model = gp.Model(env=env)
 
         # solve problem
-        match problem:
-            case ProblemType.POS_NEG:
-                coeffs = CycleOptimizer.__optimize_pos_neg(model, cycle_rep, cycle_basis, cost)
-            case ProblemType.ABS_VALUE:
-                coeffs = CycleOptimizer.__optimize_abs_value(model, cycle_rep, cycle_basis, cost)
-            case ProblemType.MIN_VECTOR:
-                coeffs = CycleOptimizer.__optimize_min_vactor(model, cycle_rep, cycle_basis, cost)
+        match lp:
+            case LPType.POS_NEG:
+                coeffs = CycleOptimizer.__optimize_pos_neg(model, cycle_rep, cycle_basis, cost, integer)
+            case LPType.ABS_VALUE:
+                coeffs = CycleOptimizer.__optimize_abs_value(model, cycle_rep, cycle_basis, cost, integer)
+            case LPType.MIN_VECTOR:
+                coeffs = CycleOptimizer.__optimize_min_vactor(model, cycle_rep, cycle_basis, cost, integer)
         obj = model.getObjective().getValue() # objective value
 
         # close model
@@ -517,16 +570,19 @@ class CycleOptimizer:
         return coeffs, obj
 
     @staticmethod
-    def __optimize_pos_neg(model, cycle_rep, cycle_basis, cost):
+    def __optimize_pos_neg(model, cycle_rep, cycle_basis, cost, integer):
         '''
         Optimize an LP solving
 
         min         c^T (x^+ + x^-)
         subject to  x^+ - x^- = b + Az
         '''
+        # decide whether to solve integer or continuous program
+        vtype = gp.GRB.INTEGER if integer else gp.GRB.CONTINUOUS
+
         # free (decision) variables
-        pos_coeffs = model.addMVar((len(cycle_rep))) # the positive coefficeints
-        neg_coeffs = model.addMVar((len(cycle_rep))) # the negative coefficeints
+        pos_coeffs = model.addMVar((len(cycle_rep)), vtype=vtype) # the positive coefficeints
+        neg_coeffs = model.addMVar((len(cycle_rep)), vtype=vtype) # the negative coefficeints
         cycles = model.addMVar((cycle_basis.shape[1]), lb=-gp.GRB.INFINITY) # the cycles that we add together
 
         # constraints
@@ -541,7 +597,7 @@ class CycleOptimizer:
         return pos_coeffs.X - neg_coeffs.X
     
     @staticmethod
-    def __optimize_abs_value(model, cycle_rep, cycle_basis, cost):
+    def __optimize_abs_value(model, cycle_rep, cycle_basis, cost, integer):
         '''
         Optimize an LP solving
 
@@ -549,10 +605,13 @@ class CycleOptimizer:
         subject to  y = |x|
                     x = b + Az
         '''
+        # decide whether to solve integer or continuous program
+        vtype = gp.GRB.INTEGER if integer else gp.GRB.CONTINUOUS
+
         # free (decision) variables
-        coeffs = model.addMVar((len(cycle_rep)), lb=-gp.GRB.INFINITY) # the coefficeints (what we return)
-        abs_coeffs = model.addMVar((len(cycle_rep))) # absolute value of the coefficeints (cost function)
-        cycles = model.addMVar((cycle_basis.shape[1]), lb=-gp.GRB.INFINITY) # the cycles that we add together
+        coeffs = model.addMVar((len(cycle_rep)), lb=-gp.GRB.INFINITY, vtype=vtype) # the coefficeints (what we return)
+        abs_coeffs = model.addMVar((len(cycle_rep)), vtype=vtype) # absolute value of the coefficeints (cost function)
+        cycles = model.addMVar((cycle_basis.shape[1]), lb=-gp.GRB.INFINITY, vtype=vtype) # the cycles that we add together
 
         # constraints
         model.addConstrs((abs_coeffs[i] == gp.abs_(coeffs[i]) for i in range(len(cycle_rep)))) # absolute value condition
@@ -567,7 +626,7 @@ class CycleOptimizer:
         return coeffs.X
     
     @staticmethod
-    def __optimize_min_vactor(model, cycle_rep, cycle_basis, cost):
+    def __optimize_min_vactor(model, cycle_rep, cycle_basis, cost, integer):
         '''
         Optimize an LP solving
 
@@ -575,9 +634,12 @@ class CycleOptimizer:
         subject to  y >= b + Az
                     y >= -b - Az
         '''
+        # decide whether to solve integer or continuous program
+        vtype = gp.GRB.INTEGER if integer else gp.GRB.CONTINUOUS
+
         # free (decision) variables
-        abs_coeffs = model.addMVar((len(cycle_rep))) # absolute value of the coefficeints (cost function)
-        cycles = model.addMVar((cycle_basis.shape[1]), lb=-gp.GRB.INFINITY) # the cycles that we add together
+        abs_coeffs = model.addMVar((len(cycle_rep)), vtype=vtype) # absolute value of the coefficeints (cost function)
+        cycles = model.addMVar((cycle_basis.shape[1]), lb=-gp.GRB.INFINITY, vtype=vtype) # the cycles that we add together
 
         # constraints
         model.addConstr(abs_coeffs >= cycle_rep + cycle_basis @ cycles) # cycle surrounds what we care about
@@ -622,10 +684,12 @@ class BoundingChainOptimizer:
         method, but requires the object to be setup
     
     Instance Variables:
-        `problem` (ProblemType): The default LP solution method for the optimizer
-        to use. Can be overwritten to make a different solver default
         `cost` (Cost): The default cost to use in the LPs. Can be overwritten to
         make a different cost default
+        `integer` (bool): Whether to solve an integer or continuous Lp by default.
+        Can be overwritten to make a different solver default
+        `lp` (LPType): The default LP solution method for the optimizer to use. Can
+        be overwritten to make a different solver default
         `cycle_rep` (pd.DataFrame): The simplcices and their filtration parameters
         that can be in the cycles
         `bounding_chain` (pd.DataFrame): The simplcices and their filtration
@@ -644,8 +708,9 @@ class BoundingChainOptimizer:
                                   factored: any, # should be a FactoredBoundryMatrixVR
                                   death: float = np.inf, # is there a way to solve for this from the cycle?
                                   return_objective: bool = False,
-                                  problem: ProblemType = ProblemType.POS_NEG,
-                                  cost: Cost = Cost.FILTRATION
+                                  cost: Cost = Cost.FILTRATION,
+                                  integer: bool = False,
+                                  lp: LPType = LPType.POS_NEG
                                   ) -> pd.DataFrame | tuple[pd.DataFrame, float]:
         '''
         Optimizes the bounding chain for a given cycle. If you're trying to do
@@ -663,10 +728,12 @@ class BoundingChainOptimizer:
             `return_objective` (bool): Whether to return the objective solution
             or not. If True, returns a tuple ('optimal_bounding_chain', 'obj'). If
             False, just returns 'optimal_bounding_chain'. Default False
-            `problem` (ProblemType | None): The LP to solve. Can be POS_NEG or
-            ABS_VALUE. If None, uses the default for the optimizer. Default None
             `cost` (Cost): The cost to use. Can be FILTRATION or UNIFORM. If None, 
             uses the deafult for the optimizer. Default None
+            `integer` (bool): Whether to solve an integer or continous LP. Default
+            False
+            `lp` (LPType | None): The LP to solve. Can be POS_NEG or ABS_VALUE. If
+            None, uses the default for the optimizer. Default None
 
         Returns:
             `optimal_bounding_chain` (pd.DataFrame): Dataframe with the optimal
@@ -692,14 +759,15 @@ class BoundingChainOptimizer:
         boundry_matrix = factored.boundary_matrix().astype(float)[cycle_rep.index, :][:, bounding_chain.index]
 
         # get cost
-        cost = BoundingChainOptimizer.__get_cost(bounding_chain, cost)
+        cost = cost(bounding_chain)
 
         # figure out which problem to use and solve
         coeffs, obj = BoundingChainOptimizer.__optimize(
                 cycle_rep['coefficient'].to_numpy(),
                 boundry_matrix,
                 cost,
-                problem
+                integer,
+                lp
             )
                 
         # get solution
@@ -716,8 +784,9 @@ class BoundingChainOptimizer:
     def __init__(self,
                  factored: any, # FactoredBoundryMatrixVR
                  cycle_dim: int,
-                 problem: ProblemType = ProblemType.POS_NEG,
                  cost: Cost = Cost.FILTRATION,
+                 integer: bool = False,
+                 lp: LPType = LPType.POS_NEG,
                  supress_gurobi: bool = False
                  ) -> None:
         '''
@@ -728,17 +797,20 @@ class BoundingChainOptimizer:
             `factored` (FactoredBoundryMatrixVR): The factored matrix for the cycles.
             Should have dimension cycle_dim+1 at least
             `cycle_dim` (int: Dimension of the cycles we want bounding chains for
-            `problem` (ProblemType): The default LP for the optimizer to use to solve
-            for optimal bounding chains. Can be either POS_NEG or ABS_VALUE, though
-            POS_NEG is faster and suggested. Default POS_NEG.
             `cost` (Cost): The cost to use to optimize bounding chains. Can be either
             FILTRATION or UNIFORM. Default FILTRATION
-            supress_gurobi (bool): Whether to supress Gurobi output or not. Default
+            `integer` (bool): Whether to solve an integer or continous LP by default.
+            Default False
+            `lp` (LPType): The default LP for the optimizer to use to solve
+            for optimal bounding chains. Can be either POS_NEG or ABS_VALUE, though
+            POS_NEG is faster and suggested. Default POS_NEG.
+            `supress_gurobi` (bool): Whether to supress Gurobi output or not. Default
             False
         '''
         # define default problem/cost
-        self.problem = problem
         self.cost = cost
+        self.integer = integer
+        self.lp = lp
         self.num_solved = 0
 
         # simplcices we use
@@ -763,8 +835,9 @@ class BoundingChainOptimizer:
                                 cycle: pd.DataFrame,
                                 death: float = np.inf,
                                 return_objective: bool = False,
-                                problem: ProblemType | None = None,
-                                cost: Cost | None = None
+                                cost: Cost | None = None,
+                                integer: bool | None = None,
+                                lp: LPType | None = None
                                 ) -> pd.DataFrame | tuple[pd.DataFrame, float]:
         '''
         Optimizes the bounding chain for a given cycle
@@ -778,10 +851,12 @@ class BoundingChainOptimizer:
             `return_objective` (bool): Whether to return the objective solution
             or not. If True, returns a tuple ('optimal_bounding_chain', 'obj'). If
             False, just returns 'optimal_bounding_chain'. Default False
-            `problem` (ProblemType | None): The LP to solve. Can be POS_NEG or
-            ABS_VALUE. If None, uses the default for the optimizer. Default None
             `cost` (Cost): The cost to use. Can be FILTRATION or UNIFORM. If None, 
             uses the deafult for the optimizer. Default None
+            `integer` (bool | None): Whether to solve an integer or continous LP. If
+            None, uses the default for the optimizer. Default None.
+            `lp` (LPType | None): The LP to solve. Can be POS_NEG or
+            ABS_VALUE. If None, uses the default for the optimizer. Default None
 
         Returns:
             `optimal_bounding_chain` (pd.DataFrame): Dataframe with the optimal
@@ -791,8 +866,10 @@ class BoundingChainOptimizer:
             cost found
         '''
         # set problem and cost
-        problem = self.problem if problem is None else problem
         cost = self.cost if cost is None else cost
+        integer = self.integer if integer is None else integer
+        lp = self.lp if lp is None else lp
+        self.num_solved += 1
 
         # cycle rep and bounding chain indicies
         cycle_rep = self.cycle_rep[self.cycle_rep['filtration'] <= death].copy()
@@ -803,14 +880,15 @@ class BoundingChainOptimizer:
         boundry_matrix = self.boundry_matrix[cycle_rep.index, :][:, bounding_chain.index]
 
         # get cost
-        cost = BoundingChainOptimizer.__get_cost(bounding_chain, cost)
+        cost = cost(bounding_chain)
 
         # figure out which problem to use and solve
         coeffs, obj = BoundingChainOptimizer.__optimize(
                 cycle_rep['coefficient'].to_numpy(),
                 boundry_matrix,
                 cost,
-                problem,
+                integer,
+                lp,
                 env=self.gp_env
             )
                 
@@ -818,7 +896,6 @@ class BoundingChainOptimizer:
         optimal_bounding_chain = BoundingChainOptimizer.__collect_results(bounding_chain, coeffs)
 
         # solve the model
-        self.num_solved += 1
         if return_objective:
             return optimal_bounding_chain, obj
         return optimal_bounding_chain
@@ -847,33 +924,22 @@ class BoundingChainOptimizer:
         simplex_indicies.loc[cycle_i, 'coefficient'] = cycle['coefficient'].tolist()
 
         return simplex_indicies
-
-    @staticmethod
-    def __get_cost(bounding_chain, cost):
-        '''
-        Get the cost vector for a bounding chain LP
-        '''
-        match cost:
-            case Cost.UNIFORM: # with uniform cost, use a vector of ones
-                return np.ones(len(bounding_chain))
-            case Cost.FILTRATION: # return the filtration values as an array
-                return bounding_chain['filtration'].to_numpy()
     
     @staticmethod
-    def __optimize(cycle_rep, boundry_matrix, cost, problem, env=None):
+    def __optimize(cycle_rep, boundry_matrix, cost, integer, lp, env=None):
         '''
-        Figures out which problem to solve as passes it to the right solver
+        Figures out which lp to solve as passes it to the right solver
         '''
         # create the model
         model = gp.Model(env=env)
 
         # solve the LP
-        match problem:
-            case ProblemType.POS_NEG:
-                coeffs = BoundingChainOptimizer.__optimize_pos_neg(model, cycle_rep, boundry_matrix, cost)
-            case ProblemType.ABS_VALUE:
-                coeffs = BoundingChainOptimizer.__optimize_abs_value(model, cycle_rep, boundry_matrix, cost)
-            case ProblemType.MIN_VECTOR:
+        match lp:
+            case LPType.POS_NEG:
+                coeffs = BoundingChainOptimizer.__optimize_pos_neg(model, cycle_rep, boundry_matrix, cost, integer)
+            case LPType.ABS_VALUE:
+                coeffs = BoundingChainOptimizer.__optimize_abs_value(model, cycle_rep, boundry_matrix, cost, integer)
+            case LPType.MIN_VECTOR:
                 raise NotImplementedError('Use only POS_NEG or ABS_VALUE for bounding chains')
             
         obj = model.getObjective().getValue() # objective value
@@ -884,13 +950,16 @@ class BoundingChainOptimizer:
         return coeffs, obj
     
     @staticmethod
-    def __optimize_pos_neg(model, cycle_rep, boundry_matrix, cost):
+    def __optimize_pos_neg(model, cycle_rep, boundry_matrix, cost, integer):
         '''
         Optimize an LP solving
 
         min         c^T (x^+ + x^-)
         subject to  b = A (x^+ - x^-)
         '''
+        # decide whether to solve integer or continuous program
+        vtype = gp.GRB.INTEGER if integer else gp.GRB.CONTINUOUS
+
         # free (decision) variables
         pos_coeffs = model.addMVar((boundry_matrix.shape[1])) # the positive coefficeints
         neg_coeffs = model.addMVar((boundry_matrix.shape[1])) # the negative coefficeints
@@ -907,7 +976,7 @@ class BoundingChainOptimizer:
         return pos_coeffs.X - neg_coeffs.X
 
     @staticmethod
-    def __optimize_abs_value(model, cycle_rep, boundry_matrix, cost):
+    def __optimize_abs_value(model, cycle_rep, boundry_matrix, cost, integer):
         '''
         Optimize an LP solving
 
@@ -915,6 +984,9 @@ class BoundingChainOptimizer:
         subject to  y = |x|
                     b = A x
         '''
+        # decide whether to solve integer or continuous program
+        vtype = gp.GRB.INTEGER if integer else gp.GRB.CONTINUOUS
+
         # free (decision) variables
         coeffs = model.addMVar((boundry_matrix.shape[1]), lb=-gp.GRB.INFINITY) # the positive coefficeints
         abs_coeffs = model.addMVar((boundry_matrix.shape[1])) # the negative coefficeints
