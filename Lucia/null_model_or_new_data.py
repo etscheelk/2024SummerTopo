@@ -155,12 +155,21 @@ def persistance_image(barcode: pd.DataFrame,
 
 # filter the data
 def filter(article_concept_df, NUM_ARTICLE_MIN, NUM_ARTICLE_MAX):
+    '''
+    Filters the input DataFrame of articles and concepts based on frequency and relevance criteria.
+    
+    Parameters:
+    article_concept_df (pd.DataFrame): A DataFrame containing articles and associated concepts.
+    NUM_ARTICLE_MIN (int): Minimum number of articles a concept must appear in to be retained.
+    NUM_ARTICLE_MAX (int): Maximum number of articles a concept can appear in to be retained.
+    
+    Returns:
+    pd.DataFrame: The filtered DataFrame with renamed columns for clarity.
+    '''
     RELEVANCE_CUTOFF = 0.7
     sizes = article_concept_df.groupby('concept').transform('size') # match each concept to the number of times it appears
     article_concept_df = article_concept_df[(sizes >= NUM_ARTICLE_MIN)
             & (sizes <= NUM_ARTICLE_MAX)]
-    # article_concept_df = article_concept_df[article_concept_df['dfreq_in_category_for_2l'] > NUM_ARTICLE_MIN] # remove rows representing rare concepts
-    # article_concept_df = article_concept_df[article_concept_df['dfreq_in_category_for_2l'] < NUM_ARTICLE_MAX] # remove rows representing ubiquitous concepts
     article_concept_df = article_concept_df[article_concept_df['mean'] > RELEVANCE_CUTOFF] # filter relevance   
     article_concept_df = article_concept_df.rename(columns={ # rename for clarity
         "mean":"relevance_mean",
@@ -172,6 +181,17 @@ def filter(article_concept_df, NUM_ARTICLE_MIN, NUM_ARTICLE_MAX):
 
 #Adding edges from the data
 def add_edges(article_concept_df):
+    '''
+    Creates a list of edges representing relationships between concepts based on their co-occurrence in articles.
+    
+    Parameters:
+    article_concept_df (pd.DataFrame): A DataFrame containing columns 'article_id', 'year', and 'concept'.
+    
+    Returns:
+    np.array: An array of edge tuples, where each tuple represents an edge between two concepts, 
+              with associated attributes 'article_id' and 'year'.
+    '''
+    
     edge_df = article_concept_df[['article_id', 'year', 'concept']].merge( # combine to make edge list
         right=article_concept_df[['article_id', 'year', 'concept']],
         on=['article_id', 'year'],
@@ -197,6 +217,15 @@ def add_edges(article_concept_df):
 
 #Adding nodes from the data
 def add_nodes(article_concept_df):
+    """
+    Creates a list of nodes representing the concepts in articles.
+    
+    Parameters:
+    article_concept_df (pd.DataFrame): A DataFrame containing columns 'article_id', 'year', and 'concept'.
+    
+    Returns:
+    np.array: An array of nodes tuples.
+    """
     node_tuple_gen = lambda row: ( # map to make node tuples
         row['concept'], # node
         { # attribute dict
@@ -214,7 +243,18 @@ def add_nodes(article_concept_df):
 
 
 def get_G(article_concept_df, B, lower_concept, up):
-    #article_concept_df is the data set, and B is a list of numbers that we won't choose for the concepts
+    '''
+    enerates a graph of concepts based on the co-occurrence of concepts in articles.
+    
+    Parameters:
+    article_concept_df (pd.DataFrame): The dataset containing article information with columns 'article_id', 'year', and 'concept'.
+    B (list): A list of numbers representing concepts to exclude from consideration.
+    lower_concept (int): The lower bound for concept numbers to consider.
+    up (int): The upper bound for concept numbers to consider.
+    
+    Returns:
+    list: A list containing the generated graph and the chosen minimum article number (NUM_ARTICLE_MIN).
+    '''
     number_of_nodes = 2000
     n = 40
 
@@ -238,24 +278,9 @@ def get_G(article_concept_df, B, lower_concept, up):
         n = n-2
 
 
-    #selected_nodes = np.random.choice(range(len(nodes)), size=500, replace=False)
-    # concept_df = filter(article_concept_df, 32, 34)
-
-    # edges = add_edges(concept_df)
-    # nodes = add_nodes(concept_df)
-
     concept_G = nx.Graph()
     concept_G.add_nodes_from(nodes)
     concept_G.add_edges_from(edges)
-
-    # concept_G = nx.Graph()
-    # concept_G.add_nodes_from([(nodes[i][0], nodes[i][1]) for i in selected_nodes])
-
-    # # Step 3: Add edges to the graph if both nodes in the edge tuple are in the selected nodes
-    # selected_nodes_set = set(selected_nodes)
-    # for u, v, data in edges:
-    #     if u in selected_nodes_set and v in selected_nodes_set:
-    #         concept_G.add_edge(u, v, **data)
 
     print(concept_G)
 
@@ -268,9 +293,17 @@ def get_G(article_concept_df, B, lower_concept, up):
 
 
 def get_G_one(article_concept_df, lower_concept, up):
-    '''article_concept_df is the data set, lower_concept and up are the lower threshold and the upper threshold of
-    the concept. The funciton chooses the concepts depending on the threshold and makes a graph'''
-
+    """
+    Generates a graph of concepts based on the co-occurrence of concepts in articles, within a specified range of concept frequencies.
+    
+    Parameters:
+    article_concept_df (pd.DataFrame): The dataset containing article information with columns 'article_id', 'year', and 'concept'.
+    lower_concept (int): The lower threshold for the number of articles a concept must appear in to be included.
+    up (int): The upper threshold for the number of articles a concept can appear in to be included.
+    
+    Returns:
+    nx.Graph: A NetworkX graph where nodes represent concepts and edges represent co-occurrence of concepts in articles.
+    """
     concept_df = filter(article_concept_df, lower_concept, up)
 
     edges = add_edges(concept_df)
@@ -297,6 +330,17 @@ def sample_from_distribution(F):
         return np.random.choice(F)
 
 def generate_network(n, F):
+    """
+    Generates a network with `n` nodes where each node's degree is sampled from a given distribution `F`,
+    and ensures that the total degree is divisible by 3 to form a valid graph structure.
+
+    Parameters:
+    n (int): Number of nodes in the network.
+    F (function): A function that defines the distribution from which node degrees are sampled.
+
+    Returns:
+    nx.Graph: A NetworkX graph where nodes are connected to form triangles based on the sampled degrees.
+    """
     V = list(range(1, n + 1))
     totalDeg = 1
     S1 = []
@@ -339,7 +383,17 @@ def generate_network(n, F):
 
 # Local edge swapping method to make a null model
 def local_edge_swap(graph, k, num_swaps_per_node):
-    "k is the range of the neighborhood, num_swaps_per_node is the number one node swap, node_persent is the persent of nodes that swap"
+    """
+    Performs local edge swaps within a k-neighborhood of each node in the graph to randomize connections while preserving the node degree distribution.
+
+    Parameters:
+    graph (nx.Graph): The input graph on which to perform edge swaps.
+    k (int): The radius of the neighborhood around each node within which edge swaps are performed.
+    num_swaps_per_node (int): The number of edge swaps to perform for each node.
+
+    Returns:
+    nx.Graph: A new graph with edges swapped within the k-neighborhoods of nodes.
+    """
     # Make a copy of the original graph
     H = graph.copy()
 
@@ -380,6 +434,16 @@ def local_edge_swap(graph, k, num_swaps_per_node):
 
 #Enter a Graph and a diction, count the number of occurance of each edge weight
 def weight_distribution(G, diction):
+    """
+    Computes the distribution of edge weights in the graph and updates the provided dictionary with the counts of each weight.
+
+    Parameters:
+    G (nx.Graph): The input graph with edges that have 'weight' attributes.
+    diction (dict): A dictionary to store the count of each weight.
+
+    Returns:
+    dict: The updated dictionary with the count of each weight in the graph.
+    """
     weight_count = diction
     for u, v, data in G.edges(data=True):
         weight = data['weight']
@@ -393,8 +457,24 @@ def weight_distribution(G, diction):
 
 #Randomly choose different real networks
 def data_barcode(l, dim, lower_concept, up, article_concept_df, diction, mylist):
-    '''Making a  list of barcode for l number of real data, choosing a threshold randomly
-    everytime. Different from data_barcode_one, data_barcode choose l different data'''
+    """
+    Generates a list of barcodes for 'l' different graphs created from the input data. Each graph is constructed
+    by randomly selecting a threshold within the given range. Computes the persistent homology of each graph and
+    updates the provided list and dictionary with the results.
+
+    Parameters:
+    l (int): The number of graphs to generate.
+    dim (int): The maximum dimension for computing the persistent homology.
+    lower_concept (int): The lower threshold for the number of articles a concept must appear in to be included.
+    up (int): The upper threshold for the number of articles a concept can appear in to be included.
+    article_concept_df (pd.DataFrame): The dataset containing article information with columns 'article_id', 'year', and 'concept'.
+    diction (dict): A dictionary to store the count of each weight.
+    mylist (list): A list to store the barcodes of the graphs.
+
+    Returns:
+    list: A list containing the updated list of barcodes, the updated dictionary of weight counts, the list of generated graphs,
+          the list of node counts for each graph, and the list of edge counts for each graph.
+    """
 
     g_list = []
     b_list = []
@@ -437,9 +517,23 @@ def data_barcode(l, dim, lower_concept, up, article_concept_df, diction, mylist)
 
 #One network
 def data_barcode_one(l, dim, lower_concept, up, article_concept_df, diction, mylist):
-    '''Making a  list of barcode for a real data that input threshold by ourself, and 
-    create a list of same data. Different from data_barcode, data_barcode_ one only has
-    one data sample but repeat n times'''
+    """
+    Generates a list of barcodes for a single graph created from the input data with specified thresholds.
+    Repeats the same graph 'l' times. Computes the persistent homology of the graph and updates the provided list 
+    and dictionary with the results.
+
+    Parameters:
+    l (int): The number of times to repeat the barcode computation.
+    dim (int): The maximum dimension for computing the persistent homology.
+    lower_concept (int): The lower threshold for the number of articles a concept must appear in to be included.
+    up (int): The upper threshold for the number of articles a concept can appear in to be included.
+    article_concept_df (pd.DataFrame): The dataset containing article information with columns 'article_id', 'year', and 'concept'.
+    diction (dict): A dictionary to store the count of each weight.
+    mylist (list): A list to store the barcodes of the graph.
+
+    Returns:
+    list: A list containing the updated list of barcodes, the updated dictionary of weight counts, and the list of the repeated graph.
+    """
     G_list = []
 
     #Get the graph G
@@ -468,10 +562,22 @@ def data_barcode_one(l, dim, lower_concept, up, article_concept_df, diction, myl
 
 
 
-
 def local_swap_barcode(l, dim, k, n, G_list, mylist):
+    """
+    Performs local edge swaps on a list of graphs and computes the persistent homology of the modified graphs.
+    Appends the resulting barcodes to the provided list.
 
+    Parameters:
+    l (int): The number of graphs to process from G_list.
+    dim (int): The maximum dimension for computing the persistent homology.
+    k (int): The radius of the neighborhood for the local edge swaps.
+    n (int): The number of edge swaps to perform per node.
+    G_list (list): A list of graphs to perform edge swaps on.
+    mylist (list): A list to store the barcodes of the modified graphs.
 
+    Returns:
+    list: The updated list of barcodes after performing edge swaps and computing persistent homology.
+    """
     for i in range(l):
         G = G_list[i]
 
@@ -491,6 +597,21 @@ def local_swap_barcode(l, dim, k, n, G_list, mylist):
     return mylist
 
 def double_swap_barcode(l, dim, n, m, G_list, mylist):
+    """
+    Performs double edge swaps on a list of graphs and computes the persistent homology of the modified graphs.
+    Appends the resulting barcodes to the provided list.
+
+    Parameters:
+    l (int): The number of graphs to process from G_list.
+    dim (int): The maximum dimension for computing the persistent homology.
+    n(int): Number of double-edge swaps to perform
+    m (int): Maximum number of attempts to swap edges, greater than n
+    G_list (list): A list of graphs to perform edge swaps on.
+    mylist (list): A list to store the barcodes of the modified graphs.
+
+    Returns:
+    list: The updated list of barcodes after performing edge swaps and computing persistent homology.
+    """
 
 
     for i in range(l):
@@ -510,7 +631,19 @@ def double_swap_barcode(l, dim, n, m, G_list, mylist):
     return mylist
 
 def double_swap_graph(l, n, m, G_list):
-    """input the original graphs G_list and get the double edge swap graph for each of the original graph"""
+    """
+    Performs double edge swaps on a list of graphs and return the graph list
+
+    Parameters:
+    l (int): The number of graphs to process from G_list.
+    n(int): Number of double-edge swaps to perform
+    m (int): Maximum number of attempts to swap edges, greater than n
+    G_list (list): A list of graphs to perform edge swaps on.
+
+    Returns:
+    list: The list of graphs after edge swap.
+    """
+
     graph_list = []
 
     for i in range(l):
