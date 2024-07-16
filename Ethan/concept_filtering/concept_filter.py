@@ -2,20 +2,23 @@
 import os
 import sys
 from time import sleep
-from more_itertools import collapse
 import pandas as pd
-import numpy as np
+# import numpy as np
 import io
 
 import random
 
 from pyparsing import Path
 
-location = "/home/lalaith/2024SummerTopo/"
-sys.path.append(location)
-os.chdir(location)
 
-import Gavin.utils.make_network as gutils
+
+
+# based on your current PWD from where you're running this file
+file = "/home/lalaith/2024SummerTopo/datasets/concept_network/concepts_Zoology_608.csv.gz"
+
+import make_network as gutils
+
+# import Gavin.utils.make_network as gutils
 
 import curses
 
@@ -28,7 +31,7 @@ def get_concepts(
     max_articles = 1.0
 ) -> list[str]:
     data = gutils.filter_article_concept_file(
-        "./datasets/concept_network/concepts_Zoology_608.csv.gz",
+        file,
         min_relevance=rel_mean_cutoff,
         min_articles=min_articles,
         max_articles=max_articles,
@@ -101,7 +104,7 @@ class WindowRange:
 # def write_to_log(s : str, fd: os.BufferedRandom) -> None:
 #     os.write(fd, s)
 
-def main(screen: curses.window, log: bool, blacklist_path: Path, test: bool) -> None:
+def main(screen: curses.window, log: bool, blacklist_path: Path, test: bool, provided_concepts: list[str] | None = None) -> None:
     RELEVANCE_MEAN_CUTOFF = 0.7
     MIN_CONCEPT_OCC = 1
     MAX_CONCEPT_OCC = 1.
@@ -126,6 +129,8 @@ def main(screen: curses.window, log: bool, blacklist_path: Path, test: bool) -> 
     # concepts: pd.Series = pd.Series(["ethan", "gavin", "frances", "lucia", "lori", "russ", "greg", "kristin", "taylor"])
     if test:
         concepts: list[str] = ["ethan", "gavin", "frances", "lucia", "lori", "russ", "greg", "kristin", "taylor"]
+    elif provided_concepts is not None:
+        concepts: list[str] = provided_concepts
     else:
         concepts = get_concepts()
     
@@ -313,26 +318,34 @@ if __name__ == "__main__":
     parser.add_argument("--log", dest="log", help="Boolean value to save logging information", type=bool, default=False, choices=[True, False], nargs=1)
     parser.add_argument("--path", dest="path", type=str, default = ["./blacklist.csv"], help="The path to save the blacklisted concepts to", nargs=1)
     parser.add_argument("--test", dest="test", type=bool, default=False, choices=[True, False], help="Test on a sample array", nargs=1)
-    
+    parser.add_argument("--concepts", dest="concepts", type=str, nargs="+", help="Provide a list of space separated concepts")
     
     args = parser.parse_args()
     
-    # print(os.environ["PWD"])
+    print(os.environ["PWD"])
     
-    a: list[str] = ["bob"]
-    a = collapse(a)
-    print(a)
+    # a: list[str] = ["bob"]
+    # a = collapse(a)
+    # print(a)
     
     _log: bool = args.log
     _path = str(args.path[0])
     _test = args.test
+    _concepts = args.concepts
     
     print(args)
     
     # print(_path.absolute())
     
     
+    
     # p = Path("./")
     sleep(2)
     
-    curses.wrapper(main, _log, Path(_path).absolute(), _test)
+    curses.wrapper(
+        main, 
+        _log, 
+        Path(_path).absolute(), 
+        _test, 
+        None if _concepts is None else _concepts
+    )
