@@ -7,15 +7,8 @@ in a more transparent, controlable, and possibly faster way.
 All functions require a valid and accessable Gurobi License
 
 It has the following classes:
-    - JordanCycleOptimizer: A cycle optimzation problem that uses a Jordan cycle
-    basis to setup the optimization problem. This creates a smaller constaint
-    matrix that should be faster to solve the optimization problem, but takes
-    longer to setup
-    - BoundryHomologyCycleOptimizer: A cycle optimization problem that uses the
-    cycle representatives from a homology calculation and the boundries from the
-    boundry matrix. This creates LPs that take (slightly) longer to run, but
-    should be able to be setup faster than the Jordan basis method
-    - BoundingChainOptimizer: A optmiztion problem for bounding chains of cycles
+    - CycleOptimizer: An optimization problems for finding cycle reps
+    - BoundingChainOptimizer: An optmiztion problem for bounding chains of cycles
 
 All three clases have static methods that allow you to optimize a single cycle
 and can be initialized to speed up the problem setup if you're solving more than
