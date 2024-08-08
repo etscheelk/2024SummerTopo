@@ -59,7 +59,7 @@ def filter_article_concept_file(file: str | pd.DataFrame,
                                 min_articles: float | int = 0,
                                 max_articles: float | int = 1.,
                                 normalize_year: bool = False,
-                                file_reader: callable = pd.read_csv
+                                file_reader: callable = lambda f: pd.read_csv(f, low_memory=True, compression='gzip')
                                 ) -> pd.DataFrame:
     '''
     Filters a article-concept file to remove concepts that aren't relevant
@@ -464,7 +464,7 @@ def gen_concept_network(file: str | pd.DataFrame,
                         min_articles: float | int = 0,
                         max_articles: float | int = 1.,
                         normalize_year: bool = False,
-                        file_reader: callable = pd.read_csv,
+                        file_reader: callable = lambda f: pd.read_csv(f, low_memory=True, compression='gzip'),
                         min_cooccurrences: int | float = 0.,
                         max_cooccurrences: int | float = 1.,
                         min_pmi: float = -np.inf,

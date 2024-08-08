@@ -6,16 +6,11 @@ in a more transparent, controlable, and possibly faster way.
 
 All functions require a valid and accessable Gurobi License
 
-It has the following classes:
-    - CycleOptimizer: An optimization problems for finding cycle reps
-    - BoundingChainOptimizer: An optmiztion problem for bounding chains of cycles
-
-All three clases have static methods that allow you to optimize a single cycle
-and can be initialized to speed up the problem setup if you're solving more than
-1 problem. 
+All clases have static methods that allow you to optimize a single cycle and can
+be initialized to speed up the problem setup if you're solving more than 1 problem. 
 
 TODO:
-    - Create a better basis for the cycle problem
+    - Update documentation
     - Area cost for Bounding Chains
     - Triangle loss problem
     - Test it
@@ -23,6 +18,7 @@ TODO:
 
 # load some packages
 from scipy import sparse
+from time import time
 from enum import Enum
 import gurobipy as gp
 import pandas as pd
@@ -39,8 +35,8 @@ class Cost(Enum):
         `FILTRATION`: Weights based on the filtration. Therefore, it creates a
         chain with simplcicies that show up earlier
     '''
-    UNIFORM = lambda chain: np.ones(len(chain))
-    FILTRATION = lambda chain: chain['filtration'].to_numpy()
+    UNIFORM = 1
+    FILTRATION = 2
 
 
 class LPType(Enum):
@@ -82,9 +78,13 @@ class Basis(Enum):
         `CYCLE_BOUNDRY`: Use all cycles and boundries as a basis for the constraint
         matrix. This will have singificant colinearity and is larger than it has to
         be
+        `CYCLE_BOUNDRY_REDUCED`: Use all cycles and a columnspace for the boundries
+        as a basis for the constraint matrix. This fixes the colinearity, but takes
+        a long time to calculate
     '''
     JORDAN = 1
     CYCLE_BOUNDRY = 2
+    CYCLE_BOUNDRY_REDUCED = 3
 
 
 class ProblemType(Enum):
@@ -100,11 +100,48 @@ class ProblemType(Enum):
         `AT_BIRTH`: Include all cycles that are born and die at the same time as or
         before the cycle we optimize
     '''
-    BEFORE_BIRTH = lambda x, y: x < y
-    AT_BIRTH = lambda x, y: x <= y
+    BEFORE_BIRTH = 1
+    AT_BIRTH = 2
 
 
-class CycleOptimizer:
+class Optimizer:
+    '''
+    Class extended by the cycle and bounding chain optimizer classes. Has a number
+    of helper functions used in both.
+    '''
+    @staticmethod
+    def _get_cost_f(cost):
+        match cost:
+            case Cost.UNIFORM:
+                return lambda chain: np.ones(len(chain))
+            case Cost.FILTRATION:
+                return lambda chain: chain['filtration'].to_numpy()
+            
+    @staticmethod
+    def _collect_results(simplex_indicies, coeffs):
+        '''
+        Take the results of the optimization problem and turn it into a returnable cycle rep
+        '''
+        optimal_chain = simplex_indicies.assign(coefficient=coeffs) # add eoffcients
+        optimal_chain = optimal_chain[optimal_chain['coefficient'] != 0].reset_index(drop=True) # keep only nonzero entries
+
+        return optimal_chain[['simplex', 'filtration', 'coefficient']]
+    
+    @staticmethod
+    def _get_return(optimal_chain, obj, return_obj, time, return_time):
+        # if we don't do anything fancy, just return the cycle
+        if not (return_obj or return_time):
+            return optimal_chain
+        
+        # return whatever we should
+        if return_obj and return_time:
+            return optimal_chain, obj, time
+        if return_obj:  # don't return time 
+            return optimal_chain, obj
+        return optimal_chain, time  # don't return obj
+
+
+class CycleOptimizer(Optimizer):
     '''
     Class to optimize cycles.
 
@@ -139,7 +176,8 @@ class CycleOptimizer:
         which represents a different cycle (or simplex) in the simplicial complex
         `cycle_basis` (sparse.csr_matrix): The cycle basis sliced and used for
         optimization
-        `gp_env` (gp.Env): Gruobi enviorment models are solved in
+        `supress_gurobi` (bool): Whether to supress gurobi output when optimizing
+        cycles
         `num_solved` (int): The number of bounding chains this opject has optimized
     '''
 
@@ -150,12 +188,14 @@ class CycleOptimizer:
                          factored: any, # should be a FactoredBoundryMatrixVR
                          filtration: float | None = None,
                          return_objective: bool = False,
+                         return_time: bool = False,
                          cost: Cost = Cost.FILTRATION,
                          problem: ProblemType = ProblemType.AT_BIRTH,
                          integer: bool = False,
                          basis: Basis = Basis.JORDAN,
-                         lp: LPType = LPType.POS_NEG
-                         ) -> pd.DataFrame | tuple[pd.DataFrame, float]:
+                         lp: LPType = LPType.POS_NEG,
+                         supress_gurobi: bool = False
+                         ) -> pd.DataFrame | tuple[pd.DataFrame, float] | tuple[pd.DataFrame, float, float]:
         '''
         Optimizes a cycle rep. This can be faster than instantiating the object for
         individual cycles, but will be slower if you want to optimize many cycles at
@@ -171,6 +211,10 @@ class CycleOptimizer:
             `return_objective` (bool): Whether or not to return the value of the
             optimized objective. If False, just returns the optimized cycle. If True,
             returns a tuple with the cycle and the objective
+            `return_time` (bool): Whether or not to return how long it took to find
+            the amount of time it took to optimize the cycle. If False, just returns
+            the optimized cycle. If true, returns a tuple with the cycle and time. If
+            the objective is also returned, the time will come after the objective
             `cost` (Cost): The cost weighting. If UNIFORM, we minimize the number of
             simplicies in the cycle. If FILTRATION, we minimize the total filtration
             of the cycle. Default FILTRATION
@@ -183,23 +227,30 @@ class CycleOptimizer:
             creates a minimal cycle basis
             `lp` (LPType): The LP to solve to optimize the cycle. POS_NEG is
             fastest and, therefore,  default
+            `supress_gurobi` (bool): Whether to hide the gurobi output when optimizing
+            the cycle. Default False.
 
         Returns:
             `optimal_cycle_rep` (pd.DataFrame): A dataframe representing the cycle.
             Has columns for "simplex", "filtration", and "coefficient"
             `obj` (float): The objective value of the cycle. Returned only if 
             `return_objective` is True.
+            `time` (float)L The amount of time in seconds it took to optimize the cycle.
+            Returned only if `return_time` is True.
         '''
         # setup
+        start = time()
         cycle_dim = len(birth_simplex) - 1 # cycle dimension is always 1 less than the number of elements in the simplcicies
         cycle_rep = factored.jordan_basis_vector(birth_simplex) # the initial cycle rep to optimize
         if filtration is None: # define the filtration if None
             filtration = cycle_rep['filtration'].max()
-        
+        cost_f = Optimizer._get_cost_f(cost)
+        filter_cycles = CycleOptimizer.__get_filter_cycles(problem)
+            
         # simplicies we optimize over
         simplex_indicies = factored.indices_boundary_matrix()
         simplex_indicies = simplex_indicies[(simplex_indicies['simplex'].str.len() == cycle_dim+1) # keep simplicies of the same dimension
-                                            & (problem(simplex_indicies['filtration'], filtration) # keep simplcicies born at or before the time we're looking for
+                                            & (filter_cycles(simplex_indicies['filtration'], filtration) # keep simplcicies born at or before the time we're looking for
                                                | simplex_indicies['simplex'].isin(cycle_rep['simplex'])) # keep simplicice in the cycle
                                             ].reset_index(drop=True) # well use the indexes to create the basis matrix
         
@@ -216,65 +267,67 @@ class CycleOptimizer:
         # need to turn everything into a list bc its a pandas array so the indexes either need to align (which they dont) or be a list
 
         # create the cycle basis to serve as a constraint
-        match basis:
-            # we want to use a jordan basis
-            case Basis.JORDAN:
-                # get cycles we want to find
-                jordan_indicies = factored.jordan_block_indices()
-                cycle_i = jordan_indicies.loc[jordan_indicies['birth simplex'].apply(tuple) == tuple(birth_simplex)].index[0] # index of the cycle
-                death = max(jordan_indicies.loc[cycle_i, 'death filtration'], filtration)
-                jordan_indicies = jordan_indicies[(jordan_indicies['dimension'] == cycle_dim) # keep cycles of the same dimension
-                                                  & (problem(jordan_indicies['birth filtration'], filtration)) # keep cycles born at or before the time we're looking for
-                                                  & (problem(jordan_indicies['death filtration'], death))
-                                                  & (jordan_indicies.index != cycle_i)] # don't have the orginal cycle in the basis
+        if basis == Basis.JORDAN:
+            # get cycles we want to find
+            jordan_indicies = factored.jordan_block_indices()
+            cycle_i = jordan_indicies.loc[jordan_indicies['birth simplex'].apply(tuple) == tuple(birth_simplex)].index[0] # index of the cycle
+            death = max(jordan_indicies.loc[cycle_i, 'death filtration'], filtration)
+            jordan_indicies = jordan_indicies[(jordan_indicies['dimension'] == cycle_dim) # keep cycles of the same dimension
+                                                & (filter_cycles(jordan_indicies['birth filtration'], filtration)) # keep cycles born at or before the time we're looking for
+                                                & (filter_cycles(jordan_indicies['death filtration'], death))
+                                                & (jordan_indicies.index != cycle_i)] # don't have the orginal cycle in the basis
 
-                # create the basis
-                cycles = [factored.jordan_basis_vector(b)[['simplex', 'coefficient']] for b in jordan_indicies['birth simplex']]
-                cycle_basis = CycleOptimizer.__create_cycle_basis(cycles, simplex_index_map)
+            # create the basis
+            cycles = [factored.jordan_basis_vector(b)[['simplex', 'coefficient']] for b in jordan_indicies['birth simplex']]
+            cycle_basis = CycleOptimizer.__create_cycle_basis(cycles, simplex_index_map)
+        else: # we want to use a cycle/boundry basis
+            # create the cycle basis
+            homology = factored.homology(
+                    return_cycle_representatives=True, # used to create the cycle basis
+                    return_bounding_chains=False
+                )[['dimension', 'birth', 'birth simplex', 'death', 'cycle representative']] # we only care about these columns
+            cycle_i = homology.loc[homology['birth simplex'].apply(tuple) == tuple(birth_simplex)].index[0] # index of the cycle
+            death = max(homology.loc[cycle_i, 'death'], filtration)
+            homology = homology[(homology['dimension'] == cycle_dim) # make basis of cycles in the right dimension
+                                & filter_cycles(homology['birth'], filtration) # basis of cycles born before the time were looking at
+                                & filter_cycles(homology['death'], death)
+                                & (homology.index != cycle_i)] # dont have cycle of interest in basis
+            cycle_basis = CycleOptimizer.__create_cycle_basis(homology['cycle representative'], simplex_index_map)
 
-            # we want to use a cycle/boundry basis
-            case Basis.CYCLE_BOUNDRY:
-                # create the cycle basis
-                homology = factored.homology(
-                        return_cycle_representatives=True, # used to create the cycle basis
-                        return_bounding_chains=False
-                    )[['dimension', 'birth', 'birth simplex', 'death', 'cycle representative']] # we only care about these columns
-                cycle_i = homology.loc[homology['birth simplex'].apply(tuple) == tuple(birth_simplex)].index[0] # index of the cycle
-                death = max(homology.loc[cycle_i, 'death'], filtration)
-                homology = homology[(homology['dimension'] == cycle_dim) # make basis of cycles in the right dimension
-                                    & problem(homology['birth'], filtration) # basis of cycles born before the time were looking at
-                                    & problem(homology['death'], death)
-                                    & (homology.index != cycle_i)] # dont have cycle of interest in basis
-                cycle_basis = CycleOptimizer.__create_cycle_basis(homology['cycle representative'], simplex_index_map)
-
-                # create the boundry basis
-                simplex_indicies = factored.indices_boundary_matrix() # we could prolly reuse this from before, but its fast so idc
-                cycle_dim_simplicies = simplex_indicies[(simplex_indicies['simplex'].str.len() == cycle_dim+1) # keep simplicies of the same dimension
-                                                        & (problem(simplex_indicies['filtration'], filtration) # keep simplcicies born at or before the time we're looking for
-                                                           # don't need death filter since filtration and death times are the same for simplicies
-                                                           | simplex_indicies['simplex'].isin(cycle_rep['simplex'])) # keep simplicice in the cycle
+            # create the boundry basis
+            simplex_indicies = factored.indices_boundary_matrix() # we could prolly reuse this from before, but its fast so idc
+            cycle_dim_simplicies = simplex_indicies[(simplex_indicies['simplex'].str.len() == cycle_dim+1) # keep simplicies of the same dimension
+                                                    & (problem(simplex_indicies['filtration'], filtration) # keep simplcicies born at or before the time we're looking for
+                                                        # don't need death filter since filtration and death times are the same for simplicies
+                                                        | simplex_indicies['simplex'].isin(cycle_rep['simplex'])) # keep simplicice in the cycle
+                                                    ] # well use the indexes to create the boundry matrix
+            higher_dim_simplicies = simplex_indicies[(simplex_indicies['simplex'].str.len() == cycle_dim+2) # keep simplicies of the same dimension
+                                                        & problem(simplex_indicies['filtration'], filtration) # keep simplcicies born at or before the time we're looking for
                                                         ] # well use the indexes to create the boundry matrix
-                higher_dim_simplicies = simplex_indicies[(simplex_indicies['simplex'].str.len() == cycle_dim+2) # keep simplicies of the same dimension
-                                                         & problem(simplex_indicies['filtration'], filtration) # keep simplcicies born at or before the time we're looking for
-                                                         ] # well use the indexes to create the boundry matrix
-                boundry_matrix = factored.boundary_matrix(
-                    ).astype(float # everyhting likes floats more
-                    )[cycle_dim_simplicies.index, :][:, higher_dim_simplicies.index] # filter to the right indicies
+            boundry_matrix = factored.boundary_matrix(
+                ).astype(float # everyhting likes floats more
+                )[cycle_dim_simplicies.index, :][:, higher_dim_simplicies.index] # filter to the right indicies
+            if basis == Basis.CYCLE_BOUNDRY_REDUCED:
+                boundry_matrix = boundry_matrix[:, CycleOptimizer.__get_minial_boundry_basis(boundry_matrix)]
 
-                # combine them into one matrix
-                cycle_basis = sparse.hstack((cycle_basis, boundry_matrix))
+            # combine them into one matrix
+            cycle_basis = sparse.hstack((cycle_basis, boundry_matrix))
 
         # make sure theres something to optimize
         if cycle_basis.shape[1] == 0:
-            optimal_cycle_rep = CycleOptimizer.__collect_results(initial_cycle_rep, initial_cycle_rep['coefficient'])
+            optimal_cycle_rep = Optimizer._collect_results(initial_cycle_rep, initial_cycle_rep['coefficient'])
 
-            # return
-            if return_objective:
-                return optimal_cycle_rep, np.abs(cost(optimal_cycle_rep) * optimal_cycle_rep['coefficient']).sum()
-            return optimal_cycle_rep
+            # return 
+            return Optimizer._get_return(
+                    optimal_cycle_rep,
+                    np.abs(cost_f(optimal_cycle_rep) * optimal_cycle_rep['coefficient']).sum(),
+                    return_objective,
+                    time()-start,
+                    return_time
+                )
 
         # get cost
-        cost = cost(initial_cycle_rep)
+        cost = cost_f(initial_cycle_rep)
 
         # setup problem and solve
         coeffs, obj = CycleOptimizer.__optimize(
@@ -282,16 +335,15 @@ class CycleOptimizer:
                 cycle_basis,
                 cost,
                 integer,
-                lp
+                lp,
+                supress_gurobi
             )
         
         # get solution
-        optimal_cycle_rep = CycleOptimizer.__collect_results(initial_cycle_rep, coeffs)
+        optimal_cycle_rep = Optimizer._collect_results(initial_cycle_rep, coeffs)
 
         # solve the model
-        if return_objective:
-            return optimal_cycle_rep, obj
-        return optimal_cycle_rep
+        return Optimizer._get_return(optimal_cycle_rep, obj, return_objective, time()-start, return_time)
 
 
     # ----- Methods -----
@@ -335,6 +387,7 @@ class CycleOptimizer:
         self.integer = integer
         self.__basis = basis
         self.lp = lp
+        self.supress_gurobi = supress_gurobi
         self.num_solved = 0
 
         # simplicies we optimize over
@@ -349,75 +402,74 @@ class CycleOptimizer:
                                          ).set_index('simplex') # index by simplex
         
         # create the cycle basis to serve as a constraint
-        match basis:
-            # jordan basis
-            case Basis.JORDAN:
-                # indicies for everything
-                jordan_indicies = factored.jordan_block_indices()
-                jordan_indicies = jordan_indicies[jordan_indicies['dimension'] == cycle_dim # keep cycles of the correct dimension
-                                                  ].reset_index(drop=True) # well use the indicies to slice the basis matrix
-                
-                # create the cycle basis
-                cycles = [factored.jordan_basis_vector(b)[['simplex', 'coefficient']] for b in jordan_indicies['birth simplex']]
-                self.cycle_basis = CycleOptimizer.__create_cycle_basis(cycles, simplex_index_map)
-                
-                # formatting
-                jordan_indicies['birth simplex'] = jordan_indicies['birth simplex'].apply(tuple) # hashable
-                self.cycle_indicies = jordan_indicies[['birth simplex', 'birth filtration', 'death filtration']].rename(columns={ # save space
-                        'birth filtration': 'birth',
-                        'death filtration': 'death'
-                    })
+        if basis == Basis.JORDAN:
+            # indicies for everything
+            jordan_indicies = factored.jordan_block_indices()
+            jordan_indicies = jordan_indicies[jordan_indicies['dimension'] == cycle_dim # keep cycles of the correct dimension
+                                                ].reset_index(drop=True) # well use the indicies to slice the basis matrix
+            
+            # create the cycle basis
+            cycles = [factored.jordan_basis_vector(b)[['simplex', 'coefficient']] for b in jordan_indicies['birth simplex']]
+            self.cycle_basis = CycleOptimizer.__create_cycle_basis(cycles, simplex_index_map)
+            
+            # formatting
+            jordan_indicies['birth simplex'] = jordan_indicies['birth simplex'].apply(tuple) # hashable
+            self.cycle_indicies = jordan_indicies[['birth simplex', 'birth filtration', 'death filtration']].rename(columns={ # save space
+                    'birth filtration': 'birth',
+                    'death filtration': 'death'
+                }).replace(
+                    np.nan, np.inf # handle cycles that don't die (inf <= inf but nan !<= nan)
+                )
+        else: # cycle boundry basis
+            # create the cycle basis
+            homology = factored.homology(
+                    return_cycle_representatives=True, # used to create the cycle basis
+                    return_bounding_chains=False
+                )[['dimension', 'birth', 'birth simplex', 'death', 'cycle representative']] # we only care about these columns
+            homology = homology[homology['dimension'] == cycle_dim # make basis of cycles in the right dimension
+                                ].reset_index(drop=True) # well use the indicies to slice the basis matrix
+            cycle_basis = CycleOptimizer.__create_cycle_basis(homology['cycle representative'], simplex_index_map)
 
-            # cycle boundry basis
-            case Basis.CYCLE_BOUNDRY:
-                # create the cycle basis
-                homology = factored.homology(
-                        return_cycle_representatives=True, # used to create the cycle basis
-                        return_bounding_chains=False
-                    )[['dimension', 'birth', 'birth simplex', 'death', 'cycle representative']] # we only care about these columns
-                homology = homology[homology['dimension'] == cycle_dim # make basis of cycles in the right dimension
-                                    ].reset_index(drop=True) # well use the indicies to slice the basis matrix
-                cycle_basis = CycleOptimizer.__create_cycle_basis(homology['cycle representative'], simplex_index_map)
+            # create the boundry basis
+            simplex_indicies = factored.indices_boundary_matrix() # we could prolly reuse this from before, but its fast so idc
+            cycle_dim_simplicies = simplex_indicies[simplex_indicies['simplex'].str.len() == cycle_dim+1] # keep simplicies of the same dimension
+            higher_dim_simplicies = simplex_indicies[simplex_indicies['simplex'].str.len() == cycle_dim+2] # keep simplicies of the same dimension
+            boundry_matrix = factored.boundary_matrix(
+                ).astype(float # everyhting likes floats more
+                )[cycle_dim_simplicies.index, :][:, higher_dim_simplicies.index] # filter to the right indicies
+            if basis == Basis.CYCLE_BOUNDRY_REDUCED:
+                basis_cols = CycleOptimizer.__get_minial_boundry_basis(boundry_matrix)
+                boundry_matrix = boundry_matrix[:, basis_cols]
+                higher_dim_simplicies = higher_dim_simplicies.reset_index(drop=True).loc[basis_cols]
+            
+            # combine them into one matrix
+            self.cycle_basis = sparse.hstack((cycle_basis, boundry_matrix))
 
-                # create the boundry basis
-                simplex_indicies = factored.indices_boundary_matrix() # we could prolly reuse this from before, but its fast so idc
-                cycle_dim_simplicies = simplex_indicies[simplex_indicies['simplex'].str.len() == cycle_dim+1] # keep simplicies of the same dimension
-                higher_dim_simplicies = simplex_indicies[simplex_indicies['simplex'].str.len() == cycle_dim+2] # keep simplicies of the same dimension
-                boundry_matrix = factored.boundary_matrix(
-                    ).astype(float # everyhting likes floats more
-                    )[cycle_dim_simplicies.index, :][:, higher_dim_simplicies.index] # filter to the right indicies
-                
-                # combine them into one matrix
-                self.cycle_basis = sparse.hstack((cycle_basis, boundry_matrix))
-
-                # formatting
-                self.cycle_indicies = pd.concat([ # matrix is indexed by homology on top of the boundries
-                        homology.assign(**{
-                                'birth simplex': lambda h: h['birth simplex'].apply(tuple) # make this hashable
-                            })[['birth simplex', 'birth', 'death']], # keep relevant columns
-                        higher_dim_simplicies.assign(simplex=None  # the simplicices are too high dimension to matter
-                            ).assign(death=higher_dim_simplicies['filtration'] # cycle "dies" at the same time it's born
-                            ).rename(columns={
-                                'simplex': 'birth simplex',
-                                'filtration': 'birth'
-                            })
-                    ]).reset_index(drop=True) # cycle basis is indexed starting at 0
-
-        # create the model enviorment
-        self.gp_env = gp.Env()
-        if supress_gurobi:
-            self.gp_env.setParam('OutputFlag', 0)
+            # formatting
+            self.cycle_indicies = pd.concat([ # matrix is indexed by homology on top of the boundries
+                    homology.assign(**{
+                            'birth simplex': lambda h: h['birth simplex'].apply(tuple) # make this hashable
+                        })[['birth simplex', 'birth', 'death']], # keep relevant columns
+                    higher_dim_simplicies.assign(simplex=None  # the simplicices are too high dimension to matter
+                        ).assign(death=higher_dim_simplicies['filtration'] # cycle "dies" at the same time it's born
+                        ).rename(columns={
+                            'simplex': 'birth simplex',
+                            'filtration': 'birth'
+                        })
+                ]).reset_index(drop=True) # cycle basis is indexed starting at 0
 
 
     def optimize_cycle(self,
                        birth_simplex: pd.DataFrame,
                        filtration: float | None = None,
                        return_objective: bool = False,
+                       return_time: bool = False,
                        cost: Cost | None = None,
                        problem: ProblemType | None = None,
                        integer: bool | None = None,
-                       lp: LPType | None = None
-                       ) -> pd.DataFrame | tuple[pd.DataFrame, float]:
+                       lp: LPType | None = None,
+                       supress_gurobi: bool | None = None
+                       ) -> pd.DataFrame | tuple[pd.DataFrame, float] | tuple[pd.DataFrame, float, float]:
         '''
         Optimizes a cycle. Uses the setup from the object to speed up the process and
         solve the LP faster
@@ -430,6 +482,10 @@ class CycleOptimizer:
             `return_objective` (bool): Whether or not to return the value of the
             optimized objective. If False, just returns the optimized cycle. If True,
             returns a tuple with the cycle and the objective
+            `return_time` (bool): Whether or not to return how long it took to find
+            the amount of time it took to optimize the cycle. If False, just returns
+            the optimized cycle. If true, returns a tuple with the cycle and time. If
+            the objective is also returned, the time will come after the objective
             `cost` (Cost | None): The cost to use. Can be FILTRATION or UNIFORM. If
             None, uses the deafult for the optimizer. Default None
             `problem` (ProblemType | None):  The default filter applied to the cycle
@@ -439,19 +495,28 @@ class CycleOptimizer:
             None, uses the default for the optimizer. Default None.
             `lp` (LPType | None): The LP to solve to optimize the cycle. If
             None, uses the default for the optimizer. Default None
+            `supress_gurobi` (bool | None): Whether to show or supress gurobi output
+            when optimizing the cycle. If None, defaults to whatever the object is set
+            to. Default None.
 
         Returns:
             `optimal_cycle_rep` (pd.DataFrame): A dataframe representing the cycle.
             Has columns for "simplex", "filtration", and "coefficient"
             `obj` (float): The objective value of the cycle. Returned only if 
             `return_objective` is True.
+            `time` (float)L The amount of time in seconds it took to optimize the cycle.
+            Returned only if `return_time` is True.
         '''
         # set problem and cost
+        start = time()
         cost = self.cost if cost is None else cost
         problem = self.problem if problem is None else problem
         integer = self.integer if integer is None else integer
+        supress_gurobi = self.supress_gurobi if supress_gurobi is None else supress_gurobi
         lp = self.lp if lp is None else lp
         self.num_solved += 1
+        cost_f = Optimizer._get_cost_f(cost)
+        filter_cycles = CycleOptimizer.__get_filter_cycles(problem)
 
         # where the cycle is
         cycle_i = self.cycle_indicies[self.cycle_indicies['birth simplex'] == tuple(birth_simplex)].index[0] # get index for the cycle 
@@ -465,26 +530,25 @@ class CycleOptimizer:
         initial_coeffs = np.reshape(self.cycle_basis[self.simplex_indicies.index, cycle_i].toarray(), -1)
 
         # simplcicies to include
-        simplex_indicies = self.simplex_indicies[problem(self.simplex_indicies['filtration'], filtration)
+        simplex_indicies = self.simplex_indicies[filter_cycles(self.simplex_indicies['filtration'], filtration)
                                                  | (initial_coeffs != 0)] # include everything born before the filtration
         initial_coeffs = initial_coeffs[simplex_indicies.index]
 
         # cycle basis 
-        cycle_indicies = self.cycle_indicies[problem(self.cycle_indicies['birth'], filtration) # keep cycles born at or before the time we're looking for
-                                             & problem(self.cycle_indicies['death'], death)
+        cycle_indicies = self.cycle_indicies[filter_cycles(self.cycle_indicies['birth'], filtration) # keep cycles born at or before the time we're looking for
+                                             & filter_cycles(self.cycle_indicies['death'], death)
                                              & (self.cycle_indicies.index != cycle_i)] # don't have orginal cycle in the basis
         
         # make sure theres a problem to solve
         if len(cycle_indicies) == 0:
-            optimal_cycle_rep = CycleOptimizer.__collect_results(simplex_indicies, initial_coeffs)
+            optimal_cycle_rep = Optimizer._collect_results(simplex_indicies, initial_coeffs)
+            obj = np.abs(cost_f(optimal_cycle_rep) * optimal_cycle_rep['coefficient']).sum()
 
             # return 
-            if return_objective:
-                return optimal_cycle_rep, np.abs(cost(optimal_cycle_rep) * optimal_cycle_rep['coefficient']).sum()
-            return optimal_cycle_rep
+            return Optimizer._get_return(optimal_cycle_rep, obj, return_objective, time()-start, return_time)
         
         # get cost
-        cost = cost(simplex_indicies)
+        cost = cost_f(simplex_indicies)
 
         # cycle basis pt 2
         cycle_basis = self.cycle_basis[simplex_indicies.index, :][:, cycle_indicies.index]
@@ -496,23 +560,13 @@ class CycleOptimizer:
                 cost,
                 integer,
                 lp,
-                env=self.gp_env
+                supress_gurobi
             )
         
         # get solution
-        optimal_cycle_rep = CycleOptimizer.__collect_results(simplex_indicies, coeffs)
+        optimal_cycle_rep = Optimizer._collect_results(simplex_indicies, coeffs)
 
-        # solve the model
-        if return_objective:
-            return optimal_cycle_rep, obj
-        return optimal_cycle_rep
-    
-
-    def close(self):
-        '''
-        Call this before the program ends. Closes the optimizer
-        '''
-        self.gp_env.close()
+        return Optimizer._get_return(optimal_cycle_rep, obj, return_objective, time()-start, return_time)
 
 
     def get_basis(self):
@@ -523,6 +577,14 @@ class CycleOptimizer:
 
 
     # ----- Helper Functions ------
+
+    @staticmethod
+    def __get_filter_cycles(problem):
+        match problem:
+            case ProblemType.BEFORE_BIRTH:
+                return lambda x, y: (x < y) | (y == np.inf)
+            case ProblemType.AT_BIRTH:
+                return lambda x, y: x <= y
 
     @staticmethod
     def __create_cycle_basis(cycles, simplex_index_map):
@@ -538,27 +600,91 @@ class CycleOptimizer:
             cycle_basis[c_i, i] = c['coefficient'].astype(float) # put coefficients into cycle basis
 
         return cycle_basis
+    
+    @staticmethod
+    def __reduce_row(row_idxs, row_data, cancel_idxs, cancel_data, col):
+        '''
+        Used in __get_minial_boundry_basis to eliminate one row
+        '''
+        # need array
+        row_idxs = np.array(row_idxs)
+        cancel_idxs = np.array(cancel_idxs)
+        cancel_data = np.array(cancel_data)
+
+        # make initial arrays (all indexes bettween both)
+        row_col_idx = np.where(row_idxs == col)[0][0]
+        cancel_col_idx = np.where(cancel_idxs == col)[0][0]
+        idxs = np.sort(np.unique(np.concatenate((row_idxs, cancel_idxs))))
+        row_mask = np.isin(idxs, row_idxs)
+        cancel_mask = np.isin(idxs, cancel_idxs)
+
+        # cancel
+        data = np.zeros_like(idxs, dtype=np.float64)
+        data[row_mask] = row_data
+        data[cancel_mask] -= cancel_data[cancel_col_idx] * cancel_data / row_data[row_col_idx]
+
+        # keep only nnz
+        mask = data != 0
+        idxs = idxs[mask]
+        data = data[mask]
+
+        return list(idxs), list(data)
+    
+    @staticmethod
+    def __get_minial_boundry_basis(boundry):
+        '''
+        Preforms gaussian elimination to get a minimal columnspace basis
+        '''
+        row = 0
+        col = 0
+        bdry = boundry.tolil()
+        basis_cols = []
+
+        for row in range(bdry.shape[0]):
+            # get the column we look at
+            first_cols = np.vectorize(lambda r: r[0] if len(r) > 0 else bdry.shape[1])(bdry.rows[row:])
+            col = first_cols.min()
+            if col >= bdry.shape[1]:
+                break
+            column_idxs = np.where(first_cols == col)[0]
+
+            # swap rows
+            min_i = column_idxs.argmin()
+            data_row = column_idxs[min_i] + row
+            bdry.rows[data_row], bdry.rows[row] = bdry.rows[row], bdry.rows[data_row]
+            bdry.data[data_row], bdry.data[row] = bdry.data[row], bdry.data[data_row]
+
+            # cancel_row = np.zeros(bdry.shape[1])
+            # cancel_row[bdry.rows[row]] = bdry.data[row]
+            for r in np.delete(column_idxs, min_i)+row:
+                bdry.rows[r], bdry.data[r] = CycleOptimizer.__reduce_row(bdry.rows[r], bdry.data[r], bdry.rows[row], bdry.data[row], col)
+
+            basis_cols.append(col) # column had data, meaning its in the basis
+
+        return basis_cols
+
             
     @staticmethod
-    def __optimize(cycle_rep, cycle_basis, cost, integer, lp, env=None):
+    def __optimize(cycle_rep, cycle_basis, cost, integer, lp, supress_gurobi):
         '''
         Decides which problem to use and passes the model params to that
         '''
-        # initialize model
-        model = gp.Model(env=env)
+        # initialize enviornment
+        with gp.Env(empty=True) as env:
+            if supress_gurobi: env.setParam('OutputFlag', 0)
+            env.start()
 
-        # solve problem
-        match lp:
-            case LPType.POS_NEG:
-                coeffs = CycleOptimizer.__optimize_pos_neg(model, cycle_rep, cycle_basis, cost, integer)
-            case LPType.ABS_VALUE:
-                coeffs = CycleOptimizer.__optimize_abs_value(model, cycle_rep, cycle_basis, cost, integer)
-            case LPType.MIN_VECTOR:
-                coeffs = CycleOptimizer.__optimize_min_vactor(model, cycle_rep, cycle_basis, cost, integer)
-        obj = model.getObjective().getValue() # objective value
-
-        # close model
-        model.close()
+            # initialize model
+            with gp.Model(env=env) as model:
+                # solve problem
+                match lp:
+                    case LPType.POS_NEG:
+                        coeffs = CycleOptimizer.__optimize_pos_neg(model, cycle_rep, cycle_basis, cost, integer)
+                    case LPType.ABS_VALUE:
+                        coeffs = CycleOptimizer.__optimize_abs_value(model, cycle_rep, cycle_basis, cost, integer)
+                    case LPType.MIN_VECTOR:
+                        coeffs = CycleOptimizer.__optimize_min_vactor(model, cycle_rep, cycle_basis, cost, integer)
+                obj = model.getObjective().getValue() # objective value
 
         return coeffs, obj
 
@@ -576,7 +702,7 @@ class CycleOptimizer:
         # free (decision) variables
         pos_coeffs = model.addMVar((len(cycle_rep)), vtype=vtype) # the positive coefficeints
         neg_coeffs = model.addMVar((len(cycle_rep)), vtype=vtype) # the negative coefficeints
-        cycles = model.addMVar((cycle_basis.shape[1]), lb=-gp.GRB.INFINITY) # the cycles that we add together
+        cycles = model.addMVar((cycle_basis.shape[1]), lb=-gp.GRB.INFINITY, vtype=vtype) # the cycles that we add together
 
         # constraints
         model.addConstr(pos_coeffs - neg_coeffs == cycle_rep + cycle_basis @ cycles) # cycle surrounds what we care about
@@ -645,20 +771,9 @@ class CycleOptimizer:
         model.optimize()
 
         return cycle_rep + cycle_basis @ cycles.X
-    
-    @staticmethod
-    def __collect_results(simplex_indicies, coeffs):
-        '''
-        Take the results of the optimization problem and turn it into a returnable cycle rep
-        '''
-        optimal_cycle_rep = simplex_indicies.assign(coefficient=coeffs) # add eoffcients
-        optimal_cycle_rep = optimal_cycle_rep[optimal_cycle_rep['coefficient'] != 0].reset_index(drop=True) # keep only nonzero entries
-
-        return optimal_cycle_rep[['simplex', 'filtration', 'coefficient']]
 
 
-
-class BoundingChainOptimizer:
+class BoundingChainOptimizer(Optimizer):
     '''
     Class to optimize bounding chains for inputted cycle reps
 
@@ -701,9 +816,11 @@ class BoundingChainOptimizer:
                                   factored: any, # should be a FactoredBoundryMatrixVR
                                   death: float = np.inf, # is there a way to solve for this from the cycle?
                                   return_objective: bool = False,
+                                  return_time: bool = False,
                                   cost: Cost = Cost.FILTRATION,
                                   integer: bool = False,
-                                  lp: LPType = LPType.POS_NEG
+                                  lp: LPType = LPType.POS_NEG,
+                                  supress_gurobi: bool = False
                                   ) -> pd.DataFrame | tuple[pd.DataFrame, float]:
         '''
         Optimizes the bounding chain for a given cycle. If you're trying to do
@@ -735,10 +852,14 @@ class BoundingChainOptimizer:
             `obj` (float): Returned if `return_objective` is True. The optimal
             cost found
         '''
+        # setup
+        start = time()
+
         # get basic information about the cycle
         cycle_dim = len(cycle.loc[0, 'simplex']) - 1 # dimension is 1 less than the length of the simplices
         simplex_indicies = factored.indices_boundary_matrix()
         simplex_indicies['filtration'] = simplex_indicies['filtration'].astype(float)
+        cost_f = Optimizer._get_cost_f(cost)
         # everythgin likes floats more
 
         # simplex keys, index will be location in boundry_matrix
@@ -752,7 +873,7 @@ class BoundingChainOptimizer:
         boundry_matrix = factored.boundary_matrix().astype(float)[cycle_rep.index, :][:, bounding_chain.index]
 
         # get cost
-        cost = cost(bounding_chain)
+        cost = cost_f(bounding_chain)
 
         # figure out which problem to use and solve
         coeffs, obj = BoundingChainOptimizer.__optimize(
@@ -760,16 +881,15 @@ class BoundingChainOptimizer:
                 boundry_matrix,
                 cost,
                 integer,
-                lp
+                lp,
+                supress_gurobi
             )
                 
         # get solution
-        optimal_bounding_chain = BoundingChainOptimizer.__collect_results(bounding_chain, coeffs)
+        optimal_bounding_chain = Optimizer._collect_results(bounding_chain, coeffs)
 
         # solve the model
-        if return_objective:
-            return optimal_bounding_chain, obj
-        return optimal_bounding_chain    
+        return Optimizer._get_return(optimal_bounding_chain, obj, return_objective, time()-start, return_time)
 
 
     # ----- Methods -----
@@ -805,6 +925,7 @@ class BoundingChainOptimizer:
         self.integer = integer
         self.lp = lp
         self.num_solved = 0
+        self.supress_gurobi = supress_gurobi
 
         # simplcices we use
         simplex_indicies = factored.indices_boundary_matrix()
@@ -818,19 +939,16 @@ class BoundingChainOptimizer:
         self.cycle_rep = self.cycle_rep.reset_index(drop=True) # boundry matrix inidicies start at 0 now, not 
         self.bounding_chain = self.bounding_chain.reset_index(drop=True)
 
-        # create the model enviorment
-        self.gp_env = gp.Env()
-        if supress_gurobi:
-            self.gp_env.setParam('OutputFlag', 0)
-
     
     def optimize_bounding_chain(self,
                                 cycle: pd.DataFrame,
                                 death: float = np.inf,
                                 return_objective: bool = False,
+                                return_time: bool = False,
                                 cost: Cost | None = None,
                                 integer: bool | None = None,
-                                lp: LPType | None = None
+                                lp: LPType | None = None,
+                                supress_gurobi: bool | None = None
                                 ) -> pd.DataFrame | tuple[pd.DataFrame, float]:
         '''
         Optimizes the bounding chain for a given cycle
@@ -859,9 +977,12 @@ class BoundingChainOptimizer:
             cost found
         '''
         # set problem and cost
+        start = time()
         cost = self.cost if cost is None else cost
         integer = self.integer if integer is None else integer
         lp = self.lp if lp is None else lp
+        supress_gurobi = self.supress_gurobi if supress_gurobi is None else supress_gurobi
+        cost_f = Optimizer._get_cost_f(cost)
         self.num_solved += 1
 
         # cycle rep and bounding chain indicies
@@ -873,7 +994,7 @@ class BoundingChainOptimizer:
         boundry_matrix = self.boundry_matrix[cycle_rep.index, :][:, bounding_chain.index]
 
         # get cost
-        cost = cost(bounding_chain)
+        cost = cost_f(bounding_chain)
 
         # figure out which problem to use and solve
         coeffs, obj = BoundingChainOptimizer.__optimize(
@@ -882,23 +1003,14 @@ class BoundingChainOptimizer:
                 cost,
                 integer,
                 lp,
-                env=self.gp_env
+                supress_gurobi
             )
                 
         # get solution
-        optimal_bounding_chain = BoundingChainOptimizer.__collect_results(bounding_chain, coeffs)
+        optimal_bounding_chain = Optimizer._collect_results(bounding_chain, coeffs)
 
         # solve the model
-        if return_objective:
-            return optimal_bounding_chain, obj
-        return optimal_bounding_chain
-    
-
-    def close(self):
-        '''
-        Call this before the program ends. Closes the optimizer
-        '''
-        self.gp_env.close()
+        return Optimizer._get_return(optimal_bounding_chain, obj, return_objective, time()-start, return_time)
 
 
     # ----- Helper Functions ------
@@ -919,26 +1031,27 @@ class BoundingChainOptimizer:
         return simplex_indicies
     
     @staticmethod
-    def __optimize(cycle_rep, boundry_matrix, cost, integer, lp, env=None):
+    def __optimize(cycle_rep, boundry_matrix, cost, integer, lp, supress_gurobi):
         '''
         Figures out which lp to solve as passes it to the right solver
         '''
-        # create the model
-        model = gp.Model(env=env)
+        # initialize enviornment
+        with gp.Env(empty=True) as env:
+            if supress_gurobi: env.setParam('OutputFlag', 0)
+            env.start()
 
-        # solve the LP
-        match lp:
-            case LPType.POS_NEG:
-                coeffs = BoundingChainOptimizer.__optimize_pos_neg(model, cycle_rep, boundry_matrix, cost, integer)
-            case LPType.ABS_VALUE:
-                coeffs = BoundingChainOptimizer.__optimize_abs_value(model, cycle_rep, boundry_matrix, cost, integer)
-            case LPType.MIN_VECTOR:
-                raise NotImplementedError('Use only POS_NEG or ABS_VALUE for bounding chains')
-            
-        obj = model.getObjective().getValue() # objective value
-
-        # close model
-        model.close()
+            # initialize model
+            with gp.Model(env=env) as model:
+                # solve the LP
+                match lp:
+                    case LPType.POS_NEG:
+                        coeffs = BoundingChainOptimizer.__optimize_pos_neg(model, cycle_rep, boundry_matrix, cost, integer)
+                    case LPType.ABS_VALUE:
+                        coeffs = BoundingChainOptimizer.__optimize_abs_value(model, cycle_rep, boundry_matrix, cost, integer)
+                    case LPType.MIN_VECTOR:
+                        raise NotImplementedError('Use only POS_NEG or ABS_VALUE for bounding chains')
+                    
+                obj = model.getObjective().getValue() # objective value
 
         return coeffs, obj
     
@@ -954,8 +1067,8 @@ class BoundingChainOptimizer:
         vtype = gp.GRB.INTEGER if integer else gp.GRB.CONTINUOUS
 
         # free (decision) variables
-        pos_coeffs = model.addMVar((boundry_matrix.shape[1])) # the positive coefficeints
-        neg_coeffs = model.addMVar((boundry_matrix.shape[1])) # the negative coefficeints
+        pos_coeffs = model.addMVar((boundry_matrix.shape[1]), vtype=vtype) # the positive coefficeints
+        neg_coeffs = model.addMVar((boundry_matrix.shape[1]), vtype=vtype) # the negative coefficeints
 
         # constraints
         model.addConstr(boundry_matrix @ (pos_coeffs-neg_coeffs) == cycle_rep) # cycle surrounds what we care about
@@ -981,10 +1094,10 @@ class BoundingChainOptimizer:
         vtype = gp.GRB.INTEGER if integer else gp.GRB.CONTINUOUS
 
         # free (decision) variables
-        coeffs = model.addMVar((boundry_matrix.shape[1]), lb=-gp.GRB.INFINITY) # the positive coefficeints
-        abs_coeffs = model.addMVar((boundry_matrix.shape[1])) # the negative coefficeints
+        coeffs = model.addMVar((boundry_matrix.shape[1]), lb=-gp.GRB.INFINITY, vtype=vtype) # the positive coefficeints
+        abs_coeffs = model.addMVar((boundry_matrix.shape[1]), vtype=vtype) # the negative coefficeints
 
-        # constraints
+        # constraints   
         model.addConstrs((abs_coeffs[i] == gp.abs_(coeffs[i]) for i in range(boundry_matrix.shape[1]))) # absolute value condition
         model.addConstr(boundry_matrix @ coeffs == cycle_rep) # cycle surrounds what we care about
 
@@ -995,13 +1108,3 @@ class BoundingChainOptimizer:
         model.optimize()
 
         return coeffs.X
-
-    @staticmethod
-    def __collect_results(simplex_indicies, coeffs):
-        '''
-        Take the results of the optimization problem and turn it into a returnable cycle rep
-        '''
-        optimal_bounding_chain = simplex_indicies.assign(coefficient=coeffs) # add eoffcients
-        optimal_bounding_chain = optimal_bounding_chain[optimal_bounding_chain['coefficient'] != 0].reset_index(drop=True) # keep only nonzero entries
-
-        return optimal_bounding_chain[['simplex', 'filtration', 'coefficient']]
