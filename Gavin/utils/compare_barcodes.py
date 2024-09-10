@@ -165,6 +165,7 @@ def persistance_image(barcode: pd.DataFrame,
     # maximum lifetime
     # we want to normalize everything to [0, 1], this is the value we divide by to do that
     max_lifetime = oat.barcode.max_finite_value(barcode['death'])
+    max_lifetime = max_lifetime if max_lifetime else 1.
 
     # points on the persistance diagram
     persistance_diagram = pd.DataFrame()
@@ -418,6 +419,8 @@ def barcode_distance_matrix(barcodes: list[pd.DataFrame],
     Returns
         `dist_matrix` (pd.Dataframe): A matrix of distances between barcodes
     '''
+    barcodes = barcodes.copy()
+
     # filter dimension
     if dim is not None:
         for i, b in enumerate(barcodes):
