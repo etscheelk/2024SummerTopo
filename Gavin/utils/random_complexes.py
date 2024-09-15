@@ -95,8 +95,8 @@ def erdos_renyi_complex(N: int,
         return G
 
     # format adjacency matrix
-    adj.setdiag(0) # oat needs diagnal to be defined and smaller than entries, this is an easy way to do that
     adj = adj.tocsr()
+    adj.setdiag(0.) # oat needs diagnal to be defined and smaller than entries, this is an easy way to do that
     adj = adj.sorted_indices()
 
     return adj
